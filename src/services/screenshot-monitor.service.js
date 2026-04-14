@@ -3,7 +3,7 @@ import path from 'path';
 import imageProcessingService from './image-processing.service.js';
 import { CONFIG } from '../config/constants.js';
 import logger from '../utils/logger.js';
-import createMouse from 'osx-mouse';
+import { onLeftDown } from '../utils/mouse-listener.js';
 import sharp from 'sharp';
 
 const log = logger('ScreenshotMonitor');
@@ -26,7 +26,7 @@ class ScreenshotMonitorService {
     return new Promise((resolve) => {
       let clickCount = 0;
       const maxClicks = 2;
-      let mouseStream = null;
+      let unsubscribe = null;
       const clicks = [];
       let timeoutHandle = null;
       let cleanedUp = false;
@@ -42,31 +42,14 @@ class ScreenshotMonitorService {
           timeoutHandle = null;
         }
 
-        if (mouseStream) {
+        if (unsubscribe) {
           setImmediate(() => {
             try {
-              if (
-                mouseStream &&
-                typeof mouseStream.removeListener === 'function'
-              ) {
-                mouseStream.removeListener('left-down', clickHandler);
-              }
+              unsubscribe();
             } catch (err) {
-              log.warn(`Error removing listener: ${err.message}`);
+              log.warn(`Error unsubscribing mouse listener: ${err.message}`);
             }
-
-            try {
-              if (mouseStream) {
-                if (typeof mouseStream.destroy === 'function') {
-                  mouseStream.destroy();
-                } else if (typeof mouseStream.unref === 'function') {
-                  mouseStream.unref();
-                }
-              }
-            } catch (err) {
-              log.warn(`Error destroying mouse stream: ${err.message}`);
-            }
-            mouseStream = null;
+            unsubscribe = null;
           });
         }
       };
@@ -156,8 +139,7 @@ class ScreenshotMonitorService {
       };
 
       try {
-        mouseStream = createMouse();
-        mouseStream.on('left-down', clickHandler);
+        unsubscribe = onLeftDown(clickHandler);
 
         // Initial timeout: wait 2 seconds for first click
         timeoutHandle = setTimeout(() => {
