@@ -32,7 +32,6 @@
     "form-data": "^4.0.0",
     "groq-sdk": "^0.36.0",
     "multer": "^2.0.2",
-    "node-tesseract": "^0.2.7",
     "nodemon": "^3.1.9",
     "openai": "^6.10.0",
     "robotjs": "^0.6.0",

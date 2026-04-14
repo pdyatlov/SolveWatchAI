@@ -141,7 +141,7 @@ Two modes, switchable via tabs:
 **Window Opacity** slider: drag from **Opaque (0%)** to **Transparent (90%)**. Changes apply live to the open HUD window — no save needed.
 
 > The HUD is invisible in screen sharing by default — only you can see it.
-> Shortcut keys: `⌘⇧H` toggle HUD · `⌘⇧X` toggle listening
+> Shortcut keys: `Ctrl+Shift+H` (`Cmd+Shift+H` on macOS) toggle HUD · `Ctrl+Shift+X` (`Cmd+Shift+X` on macOS) toggle listening
 
 ---
 
@@ -149,8 +149,8 @@ Two modes, switchable via tabs:
 
 | Shortcut | Action |
 |----------|--------|
-| `⌘ Shift H` | Toggle HUD overlay on/off |
-| `⌘ Shift X` | Toggle listening on/off — same as clicking the Listen button in the HUD |
+| `Ctrl+Shift+H` (`Cmd+Shift+H` on macOS) | Toggle HUD overlay on/off |
+| `Ctrl+Shift+X` (`Cmd+Shift+X` on macOS) | Toggle listening on/off — same as clicking the Listen button in the HUD |
 
 ---
 
@@ -159,6 +159,23 @@ Two modes, switchable via tabs:
 The Electron overlay window uses macOS `setContentProtection(true)`. This is the same API used by banking apps and video players to prevent screen capture. The window appears normally on your display but is excluded from all screenshare, recording, and screenshot capture. Your interviewer cannot see it.
 
 ---
+
+## System Audio Capture (Windows)
+
+Windows does not expose a system-audio loopback device by default. To let the transcriber hear the interviewer's voice from a meeting app (Zoom, Meet, Teams…), install a virtual audio cable:
+
+1. Install [**VB-Audio Virtual Cable**](https://vb-audio.com/Cable/) (free for personal use). The installer exposes two devices: `CABLE Input` (playback) and `CABLE Output` (recording).
+2. In the **meeting app's output settings**, pick `CABLE Input (VB-Audio Virtual Cable)` as the speaker. This routes the interviewer's audio into the virtual cable instead of your physical speakers.
+3. In `config/api-keys.json`, set `"audio_input_device": "CABLE Output (VB-Audio Virtual Cable)"`. The Python transcriber listens to this device.
+4. To hear the meeting yourself in parallel, open the legacy Sound Control Panel (Win+R → `mmsys.cpl` → Recording → select `CABLE Output` → Properties → Listen → check "Listen to this device" → pick your headphones as playback).
+
+The exact device string must match what `sounddevice.query_devices()` reports on your machine. If the transcriber cannot find the device, list devices with:
+
+```
+transcriber/venv/Scripts/python.exe -c "import sounddevice; print(sounddevice.query_devices())"
+```
+
+and copy the exact name from the output.
 
 ## Ollama (local LLM)
 
@@ -238,7 +255,7 @@ Logs are cleared automatically on every server start. They're written to:
 ## Troubleshooting
 
 **HUD doesn't appear**
-Run `./start.sh` and check the terminal — Electron should start within a few seconds. Try `⌘ Shift H`.
+Run `./start.sh` and check the terminal — Electron should start within a few seconds. Try `Ctrl+Shift+H` (`Cmd+Shift+H` on macOS).
 
 **No transcription**
 - Check that your microphone is enabled for Terminal in `System Settings → Privacy & Security → Microphone`

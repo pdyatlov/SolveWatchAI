@@ -442,7 +442,7 @@
         <span class="hint">0 = fully opaque, 90 = near-invisible. Changes apply live to the open HUD window.</span>
       </div>
       <div class="banner banner-info" style="font-size:11px">
-        The HUD is <strong>invisible in screen sharing</strong> by default — only you can see it. Shortcut keys: <strong>⌘⇧H</strong> toggle HUD · <strong>⌘⇧X</strong> push-to-talk.
+        The HUD is <strong>invisible in screen sharing</strong> by default — only you can see it. Shortcut keys: <strong id="hotkey-hud">⌘⇧H</strong> toggle HUD · <strong id="hotkey-talk">⌘⇧X</strong> push-to-talk.
       </div>
     </div>
   </div>
@@ -461,6 +461,19 @@
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Platform-specific UI adjustments — runs before anything else so the user
+// never sees Mac glyphs flash on Windows.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(() => {
+  const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+  if (isMac) return;
+  const hud  = document.getElementById('hotkey-hud');
+  const talk = document.getElementById('hotkey-talk');
+  if (hud)  hud.textContent  = 'Ctrl+Shift+H';
+  if (talk) talk.textContent = 'Ctrl+Shift+X';
+})();
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Socket
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
