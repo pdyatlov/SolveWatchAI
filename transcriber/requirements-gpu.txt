@@ -1,0 +1,6 @@
+# Optional CUDA runtime wheels for faster-whisper GPU inference.
+# Installed only when the user opts into GPU mode
+# (e.g. start.ps1 --gpu in Phase 3, or manually:
+#   pip install -r transcriber/requirements-gpu.txt)
+nvidia-cublas-cu12
+nvidia-cudnn-cu12

@@ -20,6 +20,20 @@ LANGUAGE: Optional[str] = os.getenv("LANGUAGE", "en")  # None for auto-detect
 VAD_FILTER: bool = True  # Voice Activity Detection filter (handled by Whisper internally)
 # Note: MLX automatically uses Apple Silicon GPU, no device selection needed
 
+# faster-whisper backend options (ignored by MLX engine)
+# device:       "cpu" (default) | "cuda"
+# compute_type: CT2 quantization — "int8" | "float16" | "float32" | "int8_float16".
+#               None → auto (int8 on cpu, float16 on cuda).
+# cache_dir:    where CT2 downloads HuggingFace models. Project-local by default.
+STT_DEVICE: str = os.getenv("STT_DEVICE", "cpu")
+STT_COMPUTE_TYPE: Optional[str] = os.getenv("STT_COMPUTE_TYPE") or None
+# Default cache path resolves relative to this file, so the models always land
+# in transcriber/models/ regardless of where the process was launched from.
+STT_MODEL_CACHE_DIR: str = os.getenv(
+    "STT_MODEL_CACHE_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"),
+)
+
 # Question Detection Configuration
 QUESTION_PATTERN_CONFIDENCE_THRESHOLD: float = 0.7
 
@@ -95,3 +109,11 @@ VAD_MIN_WORD_COUNT: int = int(os.getenv("VAD_MIN_WORD_COUNT", str(_vad_cfg.get("
 VAD_SILERO_THRESHOLD: float = float(os.getenv("VAD_SILERO_THRESHOLD", str(_vad_cfg.get("silero_threshold", 0.5))))
 VAD_SILERO_MIN_SPEECH_MS: int = int(os.getenv("VAD_SILERO_MIN_SPEECH_MS", str(_vad_cfg.get("silero_min_speech_duration_ms", 250))))
 VAD_SILERO_MIN_SILENCE_MS: int = int(os.getenv("VAD_SILERO_MIN_SILENCE_MS", str(_vad_cfg.get("silero_min_silence_duration_ms", 100))))
+
+# Allow config/api-keys.json to override STT backend keys when env is unset.
+if "STT_DEVICE" not in os.environ and "stt_device" in _app_cfg:
+    STT_DEVICE = str(_app_cfg["stt_device"])
+if "STT_COMPUTE_TYPE" not in os.environ and "stt_compute_type" in _app_cfg:
+    STT_COMPUTE_TYPE = str(_app_cfg["stt_compute_type"]) or None
+if "STT_MODEL_CACHE_DIR" not in os.environ and "stt_model_cache_dir" in _app_cfg:
+    STT_MODEL_CACHE_DIR = str(_app_cfg["stt_model_cache_dir"])

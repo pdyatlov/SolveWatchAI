@@ -5,16 +5,18 @@ or OpenAI Whisper API as an alternative backend.
 import io
 import logging
 import numpy as np
-import threading
 import wave
 from typing import Optional
-from config import WHISPER_MODEL, LANGUAGE, SAMPLE_RATE, VAD_ENGINE, VAD_ENERGY_GATE_THRESHOLD, VAD_SPEECH_FRAME_RATIO
+from config import (
+    WHISPER_MODEL, LANGUAGE, SAMPLE_RATE,
+    VAD_ENGINE, VAD_ENERGY_GATE_THRESHOLD, VAD_SPEECH_FRAME_RATIO,
+    STT_DEVICE, STT_COMPUTE_TYPE, STT_MODEL_CACHE_DIR,
+)
 from vad import create_vad
+from engines import create_local_engine
 
 logger = logging.getLogger(__name__)
 
-# Thread lock for MLX operations (MLX is not fully thread-safe)
-_mlx_lock = threading.Lock()
 
 VALID_LOCAL_MODELS = {"tiny", "base", "small", "medium", "large"}
 API_MODEL = "whisper-1"
@@ -36,25 +38,17 @@ class Transcriber:
         self.use_api = (model_size == API_MODEL)
 
         if not self.use_api:
-            model_paths = {
-                "tiny": "mlx-community/whisper-tiny",
-                "base": "mlx-community/whisper-base-mlx",
-                "small": "mlx-community/whisper-small-mlx",
-                "medium": "mlx-community/whisper-medium-mlx",
-                "large": "mlx-community/whisper-large-v3-mlx",
-            }
-            self.model_path = model_paths.get(model_size, f"mlx-community/whisper-{model_size}-mlx")
-            logger.info(f"Initializing MLX Whisper with model: {model_size}")
-            logger.info(f"Using model path: {self.model_path}")
-            logger.info("Using MLX (optimized for Apple Silicon GPU)")
-            try:
-                import mlx_whisper
-                logger.info("MLX Whisper imported successfully")
-            except ImportError:
-                logger.error("mlx-whisper not installed. Install with: pip install mlx-whisper")
-                raise
+            self.engine = create_local_engine(
+                model_key=model_size,
+                language=language,
+                device=STT_DEVICE,
+                compute_type=STT_COMPUTE_TYPE,
+                cache_dir=STT_MODEL_CACHE_DIR,
+            )
+            self.model_path = None  # kept for backward compat with anything that reads it
         else:
             self.model_path = None
+            self.engine = None
             logger.info("Using OpenAI Whisper API (whisper-1)")
             try:
                 import openai as _openai_check  # noqa: F401
@@ -98,30 +92,6 @@ class Transcriber:
         if not self.vad.is_speech(audio, 16000):
             return None
         return audio
-
-    # ------------------------------------------------------------------
-    # Local MLX transcription
-    # ------------------------------------------------------------------
-
-    def _transcribe_local(self, audio: np.ndarray) -> str:
-        from mlx_whisper import transcribe
-        with _mlx_lock:
-            result = transcribe(
-                audio,
-                path_or_hf_repo=self.model_path,
-                language=self.language if self.language else None,
-                verbose=False,
-                condition_on_previous_text=False,
-            )
-        if isinstance(result, dict):
-            return result.get("text", "").strip()
-        elif isinstance(result, str):
-            return result.strip()
-        else:
-            return " ".join(
-                seg.get("text", "") if isinstance(seg, dict) else str(seg)
-                for seg in result
-            ).strip()
 
     # ------------------------------------------------------------------
     # OpenAI Whisper API transcription
@@ -184,8 +154,7 @@ class Transcriber:
                 return ""
             if self.use_api:
                 return self._transcribe_api(validated, 16000)
-            else:
-                return self._transcribe_local(validated)
+            return self.engine.transcribe(validated)
         except Exception as e:
             logger.error(f"Transcription error: {e}")
             return ""

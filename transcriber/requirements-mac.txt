@@ -1,0 +1,4 @@
+# macOS-only speech-to-text backend (MLX optimized for Apple Silicon)
+# Installed automatically by start.sh on darwin; do not install on Windows/Linux.
+mlx>=0.19.0
+mlx-whisper>=0.4.0

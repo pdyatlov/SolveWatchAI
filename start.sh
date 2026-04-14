@@ -185,6 +185,10 @@ except: pass
   log "Installing/updating Python dependencies..."
   "$TRANSCRIBER_DIR/venv/bin/pip" install -q --upgrade pip
   "$TRANSCRIBER_DIR/venv/bin/pip" install -q -r "$TRANSCRIBER_DIR/requirements.txt"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    log "Installing macOS-only STT backend (MLX)..."
+    "$TRANSCRIBER_DIR/venv/bin/pip" install -q -r "$TRANSCRIBER_DIR/requirements-mac.txt"
+  fi
   ok "Python venv ready."
 
   # ── Config reminder ───────────────────────────────────────────────────────────
@@ -327,10 +331,16 @@ if [ ! -d "$TRANSCRIBER_DIR/venv" ]; then
   python3 -m venv "$TRANSCRIBER_DIR/venv"
   "$TRANSCRIBER_DIR/venv/bin/pip" install -q --upgrade pip
   "$TRANSCRIBER_DIR/venv/bin/pip" install -q -r "$TRANSCRIBER_DIR/requirements.txt"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    "$TRANSCRIBER_DIR/venv/bin/pip" install -q -r "$TRANSCRIBER_DIR/requirements-mac.txt"
+  fi
   ok "Python venv ready."
 else
   # Sync any newly added packages (fast no-op when nothing changed)
   "$TRANSCRIBER_DIR/venv/bin/pip" install -q -r "$TRANSCRIBER_DIR/requirements.txt"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    "$TRANSCRIBER_DIR/venv/bin/pip" install -q -r "$TRANSCRIBER_DIR/requirements-mac.txt"
+  fi
 fi
 
 log "Starting Python transcriber (STT model: $WHISPER_MODEL)..."
