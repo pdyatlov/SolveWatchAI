@@ -15,6 +15,16 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ── Platform check ────────────────────────────────────────────────────────────
+# start.sh targets macOS only. The runtime calls python3, brew, nc, pgrep, pkill
+# and friends — none of which are reliably available on Windows or Linux.
+if [[ "$OSTYPE" != "darwin"* ]]; then
+  echo "start.sh targets macOS only." >&2
+  echo "On Windows: use start.ps1 (added in Phase 3 of the Windows port)." >&2
+  echo "On Linux:   not yet supported." >&2
+  exit 1
+fi
+
 NODE_PORT=$(python3 -c "
 import json
 try:
@@ -82,11 +92,6 @@ if $DO_SETUP; then
   echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
   echo -e "${BOLD}  SolveWatch AI — First-Time Setup${RESET}"
   echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-
-  # ── macOS check ──────────────────────────────────────────────────────────────
-  if [[ "$OSTYPE" != "darwin"* ]]; then
-    die "This script currently targets macOS (Apple Silicon recommended). Adjust for your OS."
-  fi
 
   # ── Homebrew ─────────────────────────────────────────────────────────────────
   section "1/6  Homebrew"
