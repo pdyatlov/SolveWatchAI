@@ -1,5 +1,6 @@
-import { app, BrowserWindow, globalShortcut, ipcMain, screen } from 'electron';
+import { app, BrowserWindow, desktopCapturer, globalShortcut, ipcMain, screen } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,6 +12,7 @@ let overlayWindow = null;
 let dragState = null;
 const HOTKEY = 'CommandOrControl+Shift+H';
 const LISTEN_HOTKEY = 'CommandOrControl+Shift+X';
+const SCREENSHOT_HOTKEY = 'CommandOrControl+Shift+P';
 
 function positionOverlayOnDisplayUnderCursor(win) {
   const cursorPoint = screen.getCursorScreenPoint();
@@ -122,6 +124,62 @@ function toggleOverlay() {
   }
 }
 
+function readScreenshotsPath() {
+  try {
+    const configPath = path.join(process.cwd(), 'config', 'api-keys.json');
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.screenshots_path === 'string' && parsed.screenshots_path.trim()) {
+      return parsed.screenshots_path.trim();
+    }
+  } catch {
+    // fall through to default
+  }
+  const fallback = path.join(app.getPath('userData'), 'screenshots');
+  try {
+    fs.mkdirSync(fallback, { recursive: true });
+  } catch {}
+  console.warn(`[hotkey] screenshots_path not set in config/api-keys.json, using fallback: ${fallback}`);
+  return fallback;
+}
+
+async function captureScreenUnderCursor() {
+  try {
+    const cursor = screen.getCursorScreenPoint();
+    const display = screen.getDisplayNearestPoint(cursor);
+
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: {
+        width: Math.round(display.size.width * display.scaleFactor),
+        height: Math.round(display.size.height * display.scaleFactor),
+      },
+    });
+
+    const source = sources.find((s) => Number(s.display_id) === display.id)
+      || sources[0];
+
+    if (!source || source.thumbnail.isEmpty()) {
+      console.warn('[hotkey] no desktop source or empty thumbnail — screen recording permission may be missing (macOS)');
+      return;
+    }
+
+    const pngBuffer = source.thumbnail.toPNG();
+
+    const screenshotsPath = readScreenshotsPath();
+    try {
+      fs.mkdirSync(screenshotsPath, { recursive: true });
+    } catch {}
+
+    const filename = `hotkey-${Date.now()}.png`;
+    const outPath = path.join(screenshotsPath, filename);
+    await fs.promises.writeFile(outPath, pngBuffer);
+    console.log(`[hotkey] wrote ${outPath}`);
+  } catch (err) {
+    console.error('[hotkey] capture failed:', err);
+  }
+}
+
 app.whenReady().then(() => {
   const registered = globalShortcut.register(HOTKEY, toggleOverlay);
   if (!registered) {
@@ -133,6 +191,14 @@ app.whenReady().then(() => {
   });
   if (!listenRegistered) {
     console.warn(`Failed to register listen hotkey ${LISTEN_HOTKEY}`);
+  }
+
+  const screenshotRegistered = globalShortcut.register(
+    SCREENSHOT_HOTKEY,
+    captureScreenUnderCursor,
+  );
+  if (!screenshotRegistered) {
+    console.warn(`Failed to register screenshot hotkey ${SCREENSHOT_HOTKEY}`);
   }
 });
 

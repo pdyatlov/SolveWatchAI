@@ -1,0 +1,8 @@
+{
+  "mic_device": "Microphone (Arctis 7+)",
+  "mic_device_index": 2,
+  "mic_device_name": "Microphone (Arctis 7+)",
+  "loopback_device_index": 27,
+  "loopback_device_name": "Headphones (Arctis 7+)",
+  "loopback_mode": "wasapi_output"
+}

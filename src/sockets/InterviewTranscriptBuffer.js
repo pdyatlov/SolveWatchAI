@@ -195,9 +195,9 @@ class InterviewTranscriptBuffer {
     return out;
   }
 
-  addUtterance(text) {
+  addUtterance(text, role = 'them') {
     const id = `u-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-    this._utterances.push({ id, text, timestamp: Date.now() });
+    this._utterances.push({ id, text, role, timestamp: Date.now() });
     if (this._utterances.length > this.maxUtterances) {
       this._utterances.shift();
     }
@@ -205,7 +205,12 @@ class InterviewTranscriptBuffer {
   }
 
   getTranscriptContext() {
-    return this._utterances.map((u) => u.text).join('\n');
+    return this._utterances
+      .map((u) => {
+        const prefix = u.role === 'me' ? 'Me:' : 'Them:';
+        return `${prefix} ${u.text}`;
+      })
+      .join('\n');
   }
 
 }

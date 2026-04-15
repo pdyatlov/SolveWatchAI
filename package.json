@@ -21,6 +21,7 @@
   "author": "Parmeet Singh",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.109",
     "@anthropic-ai/sdk": "^0.88.0",
     "@google/generative-ai": "^0.24.1",
     "axios": "^1.6.2",

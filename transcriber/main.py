@@ -11,7 +11,8 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import numpy as np
@@ -21,6 +22,7 @@ from transcriber import Transcriber
 from socket_client import SocketClient
 from keyboard_handler import KeyboardHandler
 from always_on_listener import AlwaysOnListener
+from audio_sources import resolve_audio_sources
 import log_writer
 from config import SAMPLE_RATE, API_HOST, API_PORT, LOG_LEVEL, TRANSCRIPTIONS_JSON_FILE, KEYBOARD_ENABLED, ALWAYS_ON_ENABLED
 
@@ -90,7 +92,8 @@ def append_transcription_to_json(text: str):
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global transcriber, socket_client, keyboard_handler, always_on_listener
+    global transcriber, socket_client, keyboard_handler
+    global always_on_listener_them, always_on_listener_me
     global _json_writer_thread, _json_writer_running, _transcription_executor
 
     logger.info("Initializing STT system components...")
@@ -125,24 +128,65 @@ async def lifespan(app: FastAPI):
         logger.info("JSON writer thread started (NDJSON mode)")
 
         try:
-            always_on_listener = AlwaysOnListener(transcriber, socket_client)
-            logger.info("Always-on listener ready (press ⌘⇧X or click Listen to start)")
+            sources = resolve_audio_sources()
+            them_idx, them_name, them_mode = sources['loopback']
+            me_idx, me_name = sources['mic']
+
+            # Second Transcriber instance so the mic and loopback streams
+            # can transcribe in parallel without serializing on one model.
+            try:
+                transcriber_me = Transcriber()
+                logger.info("Second Transcriber (for 'me' channel) initialized")
+            except Exception as e:
+                logger.warning(f"Could not initialize second Transcriber: {e}")
+                transcriber_me = None
+
+            if them_idx is not None:
+                always_on_listener_them = AlwaysOnListener(
+                    transcriber, socket_client,
+                    device_index=them_idx, source_label='them',
+                    wasapi_loopback=(them_mode == 'wasapi_output'),
+                )
+                logger.info(
+                    f"Always-on listener (them) ready on device {them_idx}: {them_name} "
+                    f"[mode={them_mode}]"
+                )
+            else:
+                logger.warning("No loopback device resolved — 'them' channel disabled")
+                always_on_listener_them = None
+
+            if me_idx is not None and transcriber_me is not None:
+                always_on_listener_me = AlwaysOnListener(
+                    transcriber_me, socket_client,
+                    device_index=me_idx, source_label='me',
+                )
+                logger.info(f"Always-on listener (me) ready on device {me_idx}: {me_name}")
+            else:
+                logger.warning("No mic device resolved or second Transcriber unavailable — 'me' channel disabled")
+                always_on_listener_me = None
         except Exception as e:
-            logger.warning(f"Could not initialize always-on listener: {e}")
-            always_on_listener = None
+            logger.warning(f"Could not initialize always-on listeners: {e}")
+            always_on_listener_them = None
+            always_on_listener_me = None
 
         if KEYBOARD_ENABLED:
             try:
                 def toggle_always_on_keyboard():
-                    if always_on_listener is None:
+                    listeners = [l for l in (always_on_listener_them, always_on_listener_me) if l is not None]
+                    if not listeners:
                         return
-                    if always_on_listener._running:
-                        always_on_listener.stop()
+                    # Determine current state from whichever listener exists.
+                    any_running = any(l._running for l in listeners)
+                    if any_running:
+                        for l in listeners:
+                            if l._running:
+                                l.stop()
                         log_writer.log('listen_stopped', source='keyboard')
                         if socket_client and socket_client.is_connected():
                             socket_client.send_listen_state(False)
                     else:
-                        always_on_listener.start()
+                        for l in listeners:
+                            l.start()
                         log_writer.log('listen_started', source='keyboard')
                         if socket_client and socket_client.is_connected():
                             socket_client.send_listen_state(True)
@@ -172,8 +216,9 @@ async def lifespan(app: FastAPI):
 
     logger.info("Shutting down STT system...")
 
-    if always_on_listener:
-        always_on_listener.stop()
+    for l in (always_on_listener_them, always_on_listener_me):
+        if l:
+            l.stop()
 
     if keyboard_handler:
         keyboard_handler.stop()
@@ -208,11 +253,16 @@ transcriber: Optional[Transcriber] = None
 socket_client: Optional[SocketClient] = None
 recording_thread: Optional[threading.Thread] = None
 keyboard_handler: Optional[KeyboardHandler] = None
-always_on_listener: Optional[AlwaysOnListener] = None
+always_on_listener_them: Optional[AlwaysOnListener] = None
+always_on_listener_me: Optional[AlwaysOnListener] = None
 _transcription_executor: Optional[ThreadPoolExecutor] = None
 
 is_recording: bool = False
 _send_realtime_chunks: bool = True
+
+# Guards concurrent rebuilds of the always-on listeners (e.g. POST /audio-devices
+# racing with a keyboard toggle).
+_listeners_lock = threading.Lock()
 
 # Minimum accumulated audio before attempting transcription.
 # 0.5 s is the minimum Whisper supports and halves first-chunk latency.
@@ -234,6 +284,26 @@ class StartRecordingResponse(BaseModel):
 class StopRecordingResponse(BaseModel):
     status: str
     message: str
+
+
+class AudioDeviceInfo(BaseModel):
+    index: int
+    name: str
+    hostapi_name: str
+    max_input_channels: int
+    max_output_channels: int
+
+
+class AudioDevicesResponse(BaseModel):
+    devices: List[AudioDeviceInfo]
+    current: Dict[str, Any]
+    platform: str
+
+
+class AudioDevicesRequest(BaseModel):
+    mic_device_index: Optional[int] = None
+    loopback_mode: Optional[str] = None  # 'input_device' | 'wasapi_output'
+    loopback_device_index: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -458,40 +528,276 @@ async def health_check():
         "status": "healthy",
         "recording": is_recording,
         "socket_connected": socket_client.is_connected() if socket_client else False,
-        "always_on_active": (always_on_listener is not None
-                             and always_on_listener._running
-                             and not always_on_listener._paused),
+        "always_on_active": (always_on_listener_them is not None
+                             and always_on_listener_them._running
+                             and not always_on_listener_them._paused),
     }
+
+
+def _rebuild_listeners_from_config():
+    """Stop both listeners (if running), re-resolve audio sources, rebuild.
+    Returns (bool was_running, list[str] started_labels)."""
+    global always_on_listener_them, always_on_listener_me, transcriber
+
+    with _listeners_lock:
+        was_running = any(
+            l is not None and l._running
+            for l in (always_on_listener_them, always_on_listener_me)
+        )
+        for l in (always_on_listener_them, always_on_listener_me):
+            if l is not None and l._running:
+                try:
+                    l.stop()
+                except Exception as e:
+                    logger.warning(f"Error stopping listener: {e}")
+
+        time.sleep(0.2)  # let OS release device handles
+
+        sources = resolve_audio_sources()
+        them_idx, them_name, them_mode = sources['loopback']
+        me_idx, me_name = sources['mic']
+
+        always_on_listener_them = None
+        always_on_listener_me = None
+
+        if them_idx is not None:
+            try:
+                always_on_listener_them = AlwaysOnListener(
+                    transcriber, socket_client,
+                    device_index=them_idx, source_label='them',
+                    wasapi_loopback=(them_mode == 'wasapi_output'),
+                )
+                logger.info(
+                    f"Rebuilt 'them' listener on device {them_idx}: {them_name} "
+                    f"[mode={them_mode}]"
+                )
+            except Exception as e:
+                logger.error(f"Failed to rebuild 'them' listener: {e}")
+
+        if me_idx is not None:
+            try:
+                t_me = Transcriber()
+                always_on_listener_me = AlwaysOnListener(
+                    t_me, socket_client,
+                    device_index=me_idx, source_label='me',
+                )
+                logger.info(f"Rebuilt 'me' listener on device {me_idx}: {me_name}")
+            except Exception as e:
+                logger.error(f"Failed to rebuild 'me' listener: {e}")
+
+        started = []
+        if was_running:
+            for l in (always_on_listener_them, always_on_listener_me):
+                if l is not None:
+                    try:
+                        l.start()
+                        started.append(l._source_label)
+                    except Exception as e:
+                        logger.error(f"Failed to restart listener[{l._source_label}]: {e}")
+
+        return was_running, started
 
 
 @app.post("/always-on-mode")
 async def set_always_on_mode(body: dict):
-    global always_on_listener
-    enabled = body.get("enabled", True)
+    global always_on_listener_them, always_on_listener_me
+    global transcriber, socket_client
+    enabled = bool(body.get('enabled', True))
+
     if enabled:
-        if always_on_listener is None:
+        listeners = [l for l in (always_on_listener_them, always_on_listener_me) if l is not None]
+        if not listeners:
+            # Retry device resolution — the audio subsystem may have come online
+            # after lifespan init (e.g. VB-Cable installed while server was running).
             try:
-                always_on_listener = AlwaysOnListener(transcriber, socket_client)
+                sources = resolve_audio_sources()
+                them_idx, them_name, them_mode = sources['loopback']
+                me_idx, me_name = sources['mic']
+                if them_idx is not None and transcriber is not None:
+                    always_on_listener_them = AlwaysOnListener(
+                        transcriber, socket_client,
+                        device_index=them_idx, source_label='them',
+                        wasapi_loopback=(them_mode == 'wasapi_output'),
+                    )
+                    logger.info(
+                        f"Always-on listener (them) created on retry: device {them_idx} "
+                        f"({them_name}) [mode={them_mode}]"
+                    )
+                if me_idx is not None:
+                    # Build a second Transcriber for the 'me' channel so the
+                    # two streams can run in parallel. Fall back to the shared
+                    # transcriber if construction fails.
+                    try:
+                        t_me = Transcriber()
+                    except Exception as e:
+                        logger.warning(f"Could not init 'me' Transcriber on retry: {e}")
+                        t_me = transcriber
+                    if t_me is not None:
+                        always_on_listener_me = AlwaysOnListener(
+                            t_me, socket_client,
+                            device_index=me_idx, source_label='me',
+                        )
+                        logger.info(f"Always-on listener (me) created on retry: device {me_idx} ({me_name})")
             except Exception as e:
-                logger.error(f"Failed to initialize always-on listener: {e}")
-                raise HTTPException(status_code=500, detail=f"Failed to initialize listener: {str(e)}")
-        if not always_on_listener._running:
-            try:
-                always_on_listener.start()
-                logger.info("Always-on listener started")
-            except Exception as e:
-                logger.error(f"Failed to start always-on listener: {e}")
-                raise HTTPException(status_code=500, detail=f"Failed to start listener: {str(e)}")
+                logger.error(f"Re-resolve failed: {e}")
+
+            listeners = [l for l in (always_on_listener_them, always_on_listener_me) if l is not None]
+
+        if not listeners:
+            return {"status": "error", "message": "no listeners available"}
+
+        for l in listeners:
+            if not l._running:
+                try:
+                    l.start()
+                except Exception as e:
+                    logger.error(f"Failed to start listener[{l._source_label}]: {e}")
+        return {"status": "ok", "running": [l._source_label for l in listeners if l._running]}
     else:
-        if always_on_listener and always_on_listener._running:
-            always_on_listener.stop()
-            logger.info("Always-on listener stopped")
-    return {"status": "ok", "enabled": enabled}
+        listeners = [l for l in (always_on_listener_them, always_on_listener_me) if l is not None]
+        if not listeners:
+            return {"status": "ok", "running": []}
+        for l in listeners:
+            if l._running:
+                try:
+                    l.stop()
+                except Exception as e:
+                    logger.error(f"Failed to stop listener[{l._source_label}]: {e}")
+        return {"status": "ok", "running": []}
+
+
+@app.get("/audio-devices", response_model=AudioDevicesResponse)
+async def get_audio_devices():
+    import sys
+    import sounddevice as sd
+
+    try:
+        raw_devices = sd.query_devices()
+        hostapis = sd.query_hostapis()
+    except Exception as e:
+        logger.error(f"Failed to query audio devices: {e}")
+        raise HTTPException(status_code=500, detail=f"Device query failed: {e}")
+
+    devices = []
+    for idx, dev in enumerate(raw_devices):
+        api_idx = dev.get('hostapi')
+        api_name = ''
+        if isinstance(api_idx, int) and 0 <= api_idx < len(hostapis):
+            api_name = str(hostapis[api_idx].get('name', ''))
+        devices.append(AudioDeviceInfo(
+            index=idx,
+            name=str(dev.get('name', f'device_{idx}')),
+            hostapi_name=api_name,
+            max_input_channels=int(dev.get('max_input_channels', 0) or 0),
+            max_output_channels=int(dev.get('max_output_channels', 0) or 0),
+        ))
+
+    # Current selection: read from config/audio.json directly so the UI
+    # reflects exactly what's persisted, not whatever auto-detect resolved.
+    repo_root = Path(__file__).resolve().parent.parent
+    audio_cfg_path = repo_root / 'config' / 'audio.json'
+    current: Dict[str, Any] = {}
+    if audio_cfg_path.exists():
+        try:
+            with open(audio_cfg_path, 'r', encoding='utf-8') as f:
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    current = loaded
+        except Exception as e:
+            logger.warning(f"Could not read {audio_cfg_path}: {e}")
+
+    return AudioDevicesResponse(
+        devices=devices,
+        current=current,
+        platform=sys.platform,
+    )
+
+
+@app.post("/audio-devices")
+async def set_audio_devices(body: AudioDevicesRequest):
+    import sounddevice as sd
+
+    try:
+        devices = sd.query_devices()
+        hostapis = sd.query_hostapis()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Device query failed: {e}")
+
+    # Build new config dict. Start from existing on-disk config so we preserve
+    # any legacy substring fields the user may have added.
+    repo_root = Path(__file__).resolve().parent.parent
+    audio_cfg_path = repo_root / 'config' / 'audio.json'
+    new_cfg: Dict[str, Any] = {}
+    if audio_cfg_path.exists():
+        try:
+            with open(audio_cfg_path, 'r', encoding='utf-8') as f:
+                existing = json.load(f)
+                if isinstance(existing, dict):
+                    new_cfg = existing
+        except Exception:
+            pass
+
+    # -- validate and fill mic ------------------------------------------------
+    if body.mic_device_index is not None:
+        if body.mic_device_index < 0 or body.mic_device_index >= len(devices):
+            raise HTTPException(status_code=400, detail="mic_device_index out of range")
+        dev = devices[body.mic_device_index]
+        if int(dev.get('max_input_channels', 0) or 0) <= 0:
+            raise HTTPException(status_code=400, detail="mic device has no input channels")
+        new_cfg['mic_device_index'] = body.mic_device_index
+        new_cfg['mic_device_name'] = str(dev.get('name', ''))
+    else:
+        # Clearing override: remove both numeric fields
+        new_cfg.pop('mic_device_index', None)
+        new_cfg.pop('mic_device_name', None)
+
+    # -- validate and fill loopback ------------------------------------------
+    if body.loopback_device_index is not None:
+        if body.loopback_device_index < 0 or body.loopback_device_index >= len(devices):
+            raise HTTPException(status_code=400, detail="loopback_device_index out of range")
+        dev = devices[body.loopback_device_index]
+        mode = body.loopback_mode or 'input_device'
+        if mode not in ('input_device', 'wasapi_output'):
+            raise HTTPException(status_code=400, detail=f"invalid loopback_mode: {mode}")
+        api_idx = dev.get('hostapi')
+        api_name = str(hostapis[api_idx].get('name', '')) if (
+            isinstance(api_idx, int) and 0 <= api_idx < len(hostapis)
+        ) else ''
+        if mode == 'input_device':
+            if int(dev.get('max_input_channels', 0) or 0) <= 0:
+                raise HTTPException(status_code=400, detail="loopback device has no input channels")
+        else:  # wasapi_output
+            if int(dev.get('max_output_channels', 0) or 0) <= 0:
+                raise HTTPException(status_code=400, detail="wasapi_output requires an output device")
+            if 'wasapi' not in api_name.lower():
+                raise HTTPException(status_code=400, detail=f"wasapi_output requires a WASAPI device (got {api_name})")
+        new_cfg['loopback_device_index'] = body.loopback_device_index
+        new_cfg['loopback_device_name'] = str(dev.get('name', ''))
+        new_cfg['loopback_mode'] = mode
+    else:
+        new_cfg.pop('loopback_device_index', None)
+        new_cfg.pop('loopback_device_name', None)
+        new_cfg.pop('loopback_mode', None)
+
+    # -- write config --------------------------------------------------------
+    audio_cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(audio_cfg_path, 'w', encoding='utf-8') as f:
+        json.dump(new_cfg, f, indent=2)
+    logger.info(f"Wrote audio config: {new_cfg}")
+
+    # -- rebuild listeners ---------------------------------------------------
+    was_running, started = _rebuild_listeners_from_config()
+    return {
+        'status': 'ok',
+        'was_running': was_running,
+        'started': started,
+        'config': new_cfg,
+    }
 
 
 @app.post("/set-stt-model")
 async def set_stt_model(body: dict):
-    global transcriber, always_on_listener
+    global transcriber, always_on_listener_them, always_on_listener_me
     model = body.get("model", "small")
 
     valid_models = {"tiny", "base", "small", "medium", "large", "whisper-1"}
@@ -500,57 +806,71 @@ async def set_stt_model(body: dict):
 
     logger.info(f"Switching STT model to: {model}")
 
-    # Pause always-on listener while we swap the transcriber
-    listener_was_running = False
-    if always_on_listener and always_on_listener._running and not always_on_listener._paused:
-        always_on_listener.pause()
-        listener_was_running = True
+    # Pause always-on listeners while we swap the transcriber
+    listeners = [l for l in (always_on_listener_them, always_on_listener_me) if l is not None]
+    paused_listeners = []
+    for l in listeners:
+        if l._running and not l._paused:
+            l.pause()
+            paused_listeners.append(l)
 
     try:
         transcriber = Transcriber(model_size=model)
+        # Build a second Transcriber for the 'me' channel so the post-switch
+        # state mirrors post-lifespan state (two independent instances,
+        # allowing parallel transcription of mic + loopback).
+        transcriber_me = None
+        try:
+            transcriber_me = Transcriber(model_size=model)
+        except Exception as e:
+            logger.warning(f"Could not initialize second Transcriber for 'me' channel: {e}")
         logger.info(f"STT model switched to: {model}")
         log_writer.log('stt_model_switched', model=model)
     except Exception as e:
         logger.error(f"Failed to switch STT model: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
 
-    # Resume or recreate the always-on listener with the new transcriber
-    if always_on_listener:
-        always_on_listener._transcriber = transcriber
-        if listener_was_running:
-            always_on_listener.resume()
-    elif listener_was_running:
-        always_on_listener = AlwaysOnListener(transcriber, socket_client)
-        always_on_listener.start()
+    # Rebind the 'them' listener to the primary transcriber, and the 'me'
+    # listener to its own second instance (falling back to the primary if
+    # the second instance could not be constructed).
+    if always_on_listener_them:
+        always_on_listener_them._transcriber = transcriber
+    if always_on_listener_me:
+        always_on_listener_me._transcriber = transcriber_me if transcriber_me is not None else transcriber
+    for l in paused_listeners:
+        l.resume()
 
     return {"status": "ok", "model": model}
 
 
 @app.post("/set-vad-config")
 async def set_vad_config(body: dict):
-    global always_on_listener, transcriber
+    global always_on_listener_them, always_on_listener_me, transcriber
     if not body:
         raise HTTPException(status_code=400, detail="Empty config body")
+
+    listeners = [l for l in (always_on_listener_them, always_on_listener_me) if l is not None]
 
     # Handle engine switch
     new_engine = body.get('engine')
     if new_engine and transcriber and transcriber.vad.engine_name != new_engine:
         from vad import create_vad
         old_engine = transcriber.vad.engine_name
-        # Pause listener during swap
-        if always_on_listener:
-            always_on_listener.pause()
+        # Pause listeners during swap
+        for l in listeners:
+            l.pause()
         transcriber.vad = create_vad(new_engine, body)
-        if always_on_listener:
-            always_on_listener.resume()
+        for l in listeners:
+            l.resume()
         logger.info(f"VAD engine switched: {old_engine} -> {new_engine}")
         log_writer.log('vad_engine_switched', from_engine=old_engine, to_engine=new_engine, config=body)
 
-    # Update the always-on listener (which also updates the transcriber's VAD params)
-    if always_on_listener:
-        always_on_listener.update_config(body)
+    # Update each always-on listener (which also updates its transcriber's VAD params)
+    if listeners:
+        for l in listeners:
+            l.update_config(body)
     elif transcriber:
-        # If listener isn't running, still update the transcriber's VAD params directly
+        # If no listeners are set up, still update the transcriber's VAD params directly
         transcriber.vad.update_config(body)
 
     logger.info(f"VAD config updated: {body}")
@@ -560,9 +880,15 @@ async def set_vad_config(body: dict):
 
 @app.get("/vad-metrics")
 async def get_vad_metrics():
-    """Return rolling VAD metrics summary (5-minute window)."""
-    if always_on_listener:
-        return always_on_listener.metrics.get_summary()
+    """Return rolling VAD metrics summary (5-minute window).
+
+    Uses the 'them' listener as representative since both listeners share
+    the same VAD engine type and config.
+    """
+    if always_on_listener_them:
+        return always_on_listener_them.metrics.get_summary()
+    if always_on_listener_me:
+        return always_on_listener_me.metrics.get_summary()
     return {"error": "Always-on listener not running"}
 
 

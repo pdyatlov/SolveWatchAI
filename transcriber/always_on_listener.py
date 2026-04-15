@@ -15,6 +15,13 @@ import numpy as np
 import sounddevice as sd
 from concurrent.futures import ThreadPoolExecutor
 
+try:
+    import soundcard as sc
+    SOUNDCARD_AVAILABLE = True
+except ImportError:
+    sc = None
+    SOUNDCARD_AVAILABLE = False
+
 from config import (
     SAMPLE_RATE,
     ALWAYS_ON_SILENCE_THRESHOLD,
@@ -38,13 +45,17 @@ _CHUNK_LOG_SAMPLE_RATE = 0.1
 class AlwaysOnListener:
     """Continuously listens to the microphone and emits detected utterances."""
 
-    def __init__(self, transcriber, socket_client):
+    def __init__(self, transcriber, socket_client, device_index=None, source_label='them', wasapi_loopback=False):
+        self._device_index = device_index
+        self._source_label = source_label
+        self._wasapi_loopback = wasapi_loopback
         self._transcriber = transcriber
         self._socket_client = socket_client
 
         self._paused = False
         self._running = False
         self._stream = None
+        self._loopback_thread = None
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="aol-transcribe")
 
         # VAD state
@@ -77,24 +88,170 @@ class AlwaysOnListener:
         if self._executor._shutdown:
             self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="aol-transcribe")
         self._running = True
-        self._stream = sd.InputStream(
-            samplerate=SAMPLE_RATE,
-            channels=1,
-            dtype='float32',
-            blocksize=_BLOCK_SIZE,
-            callback=self._audio_callback,
-        )
-        self._stream.start()
-        logger.info(
-            f"AlwaysOnListener started "
-            f"(silence_threshold={ALWAYS_ON_SILENCE_THRESHOLD}s, "
-            f"min_speech={ALWAYS_ON_MIN_SPEECH_DURATION}s)"
-        )
+
+        if self._wasapi_loopback:
+            if not SOUNDCARD_AVAILABLE:
+                logger.error(
+                    f"AlwaysOnListener[{self._source_label}]: "
+                    "'soundcard' package not installed — cannot use WASAPI loopback. "
+                    "Run: pip install soundcard"
+                )
+                self._running = False
+                return
+            self._loopback_thread = threading.Thread(
+                target=self._soundcard_loopback_loop,
+                name=f"aol-loopback-{self._source_label}",
+                daemon=True,
+            )
+            self._loopback_thread.start()
+            logger.info(
+                f"AlwaysOnListener[{self._source_label}] started via soundcard loopback "
+                f"(sd_device_index={self._device_index}, "
+                f"silence_threshold={ALWAYS_ON_SILENCE_THRESHOLD}s, "
+                f"min_speech={ALWAYS_ON_MIN_SPEECH_DURATION}s)"
+            )
+        else:
+            self._stream = sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype='float32',
+                blocksize=_BLOCK_SIZE,
+                callback=self._audio_callback,
+                device=self._device_index,
+            )
+            self._stream.start()
+            logger.info(
+                f"AlwaysOnListener[{self._source_label}] started "
+                f"(device={self._device_index}, wasapi_loopback=False, "
+                f"silence_threshold={ALWAYS_ON_SILENCE_THRESHOLD}s, "
+                f"min_speech={ALWAYS_ON_MIN_SPEECH_DURATION}s)"
+            )
         log_writer.log('always_on_started',
                        silence_threshold=ALWAYS_ON_SILENCE_THRESHOLD,
                        min_speech=ALWAYS_ON_MIN_SPEECH_DURATION,
                        max_utterance=ALWAYS_ON_MAX_UTTERANCE_DURATION,
-                       min_word_count=self._min_word_count)
+                       min_word_count=self._min_word_count,
+                       wasapi_loopback=self._wasapi_loopback)
+
+    def _soundcard_loopback_loop(self):
+        """Thread body: pull audio from the WASAPI loopback mic matching our
+        configured output device and feed chunks into _audio_callback so the
+        downstream VAD + transcription pipeline runs unchanged.
+
+        The device is identified by matching the sounddevice device name to
+        soundcard's mic list (which exposes output devices as loopback mics
+        when include_loopback=True).
+        """
+        # soundcard uses Windows COM (IMMDeviceEnumerator) under the hood.
+        # COM must be initialized per-thread on Windows; without this call
+        # sc.all_microphones() returns HRESULT 0x800401f0 (CO_E_NOTINITIALIZED).
+        import sys as _sys
+        com_initialized = False
+        if _sys.platform == 'win32':
+            try:
+                import ctypes as _ctypes
+                # COINIT_MULTITHREADED = 0x0
+                hr = _ctypes.windll.ole32.CoInitializeEx(None, 0x0)
+                # S_OK=0, S_FALSE=1 (already initialized). Both treated as success.
+                if hr in (0, 1):
+                    com_initialized = True
+                else:
+                    logger.warning(
+                        f"AlwaysOnListener[{self._source_label}]: "
+                        f"CoInitializeEx returned HRESULT 0x{hr & 0xFFFFFFFF:08x}"
+                    )
+            except Exception as e:
+                logger.warning(
+                    f"AlwaysOnListener[{self._source_label}]: CoInitializeEx failed: {e}"
+                )
+
+        try:
+            try:
+                target_name = str(sd.query_devices(self._device_index).get('name', '')).strip()
+            except Exception as e:
+                logger.error(
+                    f"AlwaysOnListener[{self._source_label}]: could not query sd device "
+                    f"{self._device_index}: {e}"
+                )
+                self._running = False
+                return
+
+            mics = sc.all_microphones(include_loopback=True)
+            target_mic = None
+            target_key = target_name.lower().strip()
+            # 1) exact case-insensitive match
+            for m in mics:
+                if m.name.lower().strip() == target_key:
+                    target_mic = m
+                    break
+            # 2) substring match either direction (soundcard names sometimes
+            #    include prefix like "Loopback: " or truncate suffixes)
+            if target_mic is None and target_key:
+                for m in mics:
+                    nm = m.name.lower()
+                    if target_key in nm or nm in target_key:
+                        target_mic = m
+                        break
+            # 3) fallback: default-speaker loopback
+            if target_mic is None:
+                try:
+                    default_spk = sc.default_speaker()
+                    for m in mics:
+                        if m.name == default_spk.name:
+                            target_mic = m
+                            break
+                except Exception:
+                    pass
+
+            if target_mic is None:
+                available = ', '.join(repr(m.name) for m in mics)
+                logger.error(
+                    f"AlwaysOnListener[{self._source_label}]: "
+                    f"no soundcard loopback mic found matching '{target_name}'. "
+                    f"Available: {available}"
+                )
+                self._running = False
+                return
+
+            logger.info(
+                f"AlwaysOnListener[{self._source_label}]: "
+                f"soundcard recorder '{target_mic.name}' opened"
+            )
+
+            with target_mic.recorder(samplerate=SAMPLE_RATE, channels=1,
+                                     blocksize=_BLOCK_SIZE) as recorder:
+                while self._running:
+                    if self._paused:
+                        time.sleep(0.05)
+                        continue
+                    try:
+                        data = recorder.record(numframes=_BLOCK_SIZE)
+                    except Exception as e:
+                        logger.error(
+                            f"AlwaysOnListener[{self._source_label}] record error: {e}"
+                        )
+                        break
+                    if data is None or len(data) == 0:
+                        continue
+                    # Ensure shape (frames, 1) matches what sd.InputStream would pass.
+                    if data.ndim == 1:
+                        data = data.reshape(-1, 1)
+                    elif data.shape[1] > 1:
+                        # Downmix just in case soundcard ignores channels=1.
+                        data = data.mean(axis=1, keepdims=True)
+                    self._audio_callback(data, data.shape[0], None, None)
+        except Exception as e:
+            logger.error(
+                f"AlwaysOnListener[{self._source_label}] soundcard loop fatal: {e}"
+            )
+        finally:
+            self._running = False
+            if com_initialized:
+                try:
+                    import ctypes as _ctypes
+                    _ctypes.windll.ole32.CoUninitialize()
+                except Exception:
+                    pass
 
     def stop(self):
         self._running = False
@@ -105,8 +262,11 @@ class AlwaysOnListener:
             except Exception as e:
                 logger.warning(f"Error stopping always-on stream: {e}")
             self._stream = None
+        if self._loopback_thread is not None:
+            self._loopback_thread.join(timeout=2.0)
+            self._loopback_thread = None
         self._executor.shutdown(wait=False)
-        logger.info("AlwaysOnListener stopped")
+        logger.info(f"AlwaysOnListener[{self._source_label}] stopped")
 
     def pause(self):
         self._paused = True
@@ -322,12 +482,14 @@ class AlwaysOnListener:
             if was_filtered:
                 return
 
-            logger.info(f"Interviewer: {text}")
-            print(f"Interviewer: {text}")
+            label = 'Me' if self._source_label == 'me' else 'Interviewer'
+            logger.info(f"{label}: {text}")
+            print(f"{label}: {text}")
             log_writer.log('interviewer_speech', text=text, engine=engine,
                            avg_probability=round(avg_prob, 4),
-                           duration_s=round(duration_s, 3))
+                           duration_s=round(duration_s, 3),
+                           source=self._source_label)
             if self._socket_client and self._socket_client.is_connected():
-                self._socket_client.send_interviewer_speech(text)
+                self._socket_client.send_interviewer_speech(text, source=self._source_label)
         except Exception as e:
             logger.error(f"AlwaysOnListener transcription error: {e}")

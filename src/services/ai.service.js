@@ -29,6 +29,7 @@ const DEFAULT_MODELS = {
   grok: 'llama-3.3-70b-versatile',
   gemini: 'gemini-2.5-flash',
   claude: 'claude-sonnet-4-5',
+  'claude-subscription': 'sonnet',
 };
 
 class AIService {
@@ -293,6 +294,35 @@ class AIService {
     return response.content[0]?.text || 'No response generated';
   }
 
+  async callClaudeSubscription(messages, options = {}) {
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    const systemMsg = messages.find((m) => m.role === 'system')?.content || '';
+    const userContent = messages
+      .filter((m) => m.role !== 'system')
+      .map((m) => m.content)
+      .join('\n\n');
+
+    const stream = query({
+      prompt: userContent || 'Hello',
+      options: {
+        systemPrompt: systemMsg || undefined,
+        model: options.model || this._getModel('claude-subscription') || 'sonnet',
+        allowedTools: [],
+        maxTurns: 1,
+      },
+    });
+
+    let result = '';
+    for await (const msg of stream) {
+      if (msg?.type === 'assistant' && msg.message?.content) {
+        for (const block of msg.message.content) {
+          if (block.type === 'text' && block.text) result += block.text;
+        }
+      }
+    }
+    return result || 'No response generated';
+  }
+
   async callAIWithFallback(messages, options = {}) {
     const providers = this.getAvailableProviders();
 
@@ -321,10 +351,11 @@ class AIService {
         log.debug(`Trying AI provider: ${providerId}`);
         let response;
         switch (providerId) {
-          case 'openai':  response = await this.callOpenAI(messages, options); break;
-          case 'grok':    response = await this.callGrok(messages, options); break;
-          case 'gemini':  response = await this.callGemini(messages, options); break;
-          case 'claude':  response = await this.callClaude(messages, options); break;
+          case 'openai':              response = await this.callOpenAI(messages, options); break;
+          case 'grok':                response = await this.callGrok(messages, options); break;
+          case 'gemini':              response = await this.callGemini(messages, options); break;
+          case 'claude':              response = await this.callClaude(messages, options); break;
+          case 'claude-subscription': response = await this.callClaudeSubscription(messages, options); break;
           default: throw new Error(`Unknown provider: ${providerId}`);
         }
         this.markProviderAsSuccess(providerId);
@@ -421,6 +452,39 @@ class AIService {
     }
   }
 
+  async *streamClaudeSubscription(messages, options = {}) {
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    const systemMsg = messages.find((m) => m.role === 'system')?.content || '';
+    const userContent = messages
+      .filter((m) => m.role !== 'system')
+      .map((m) => m.content)
+      .join('\n\n');
+
+    const stream = query({
+      prompt: userContent || 'Hello',
+      options: {
+        systemPrompt: systemMsg || undefined,
+        model: options.model || this._getModel('claude-subscription') || 'sonnet',
+        allowedTools: [],
+        maxTurns: 1,
+        includePartialMessages: true,
+      },
+    });
+
+    for await (const msg of stream) {
+      if (msg?.type === 'stream_event') {
+        const ev = msg.event;
+        if (
+          ev?.type === 'content_block_delta'
+          && ev.delta?.type === 'text_delta'
+          && ev.delta.text
+        ) {
+          yield ev.delta.text;
+        }
+      }
+    }
+  }
+
   /**
    * Streams tokens from the first available provider.
    * Falls back to the next provider if connection fails before any tokens arrive.
@@ -439,10 +503,11 @@ class AIService {
       try {
         let gen;
         switch (providerId) {
-          case 'openai': gen = this.streamOpenAI(messages, options); break;
-          case 'grok':   gen = this.streamGrok(messages, options); break;
-          case 'gemini': gen = this.streamGemini(messages, options); break;
-          case 'claude': gen = this.streamClaude(messages, options); break;
+          case 'openai':              gen = this.streamOpenAI(messages, options); break;
+          case 'grok':                gen = this.streamGrok(messages, options); break;
+          case 'gemini':              gen = this.streamGemini(messages, options); break;
+          case 'claude':              gen = this.streamClaude(messages, options); break;
+          case 'claude-subscription': gen = this.streamClaudeSubscription(messages, options); break;
           default: throw new Error(`Unknown provider: ${providerId}`);
         }
 
@@ -667,15 +732,16 @@ Question: ${question}`;
       } catch (err) {
         log.warn('Ollama answer streaming failed, falling back to remote', { error: err.message });
       }
-    } else if (['openai', 'grok', 'gemini', 'claude'].includes(answerMode)) {
+    } else if (['openai', 'grok', 'gemini', 'claude', 'claude-subscription'].includes(answerMode)) {
       try {
         const opts = { temperature: 0.7, max_tokens: 2048 };
         let gen;
         switch (answerMode) {
-          case 'openai': gen = this.streamOpenAI(messages, opts); break;
-          case 'grok':   gen = this.streamGrok(messages, opts); break;
-          case 'gemini': gen = this.streamGemini(messages, opts); break;
-          case 'claude': gen = this.streamClaude(messages, opts); break;
+          case 'openai':              gen = this.streamOpenAI(messages, opts); break;
+          case 'grok':                gen = this.streamGrok(messages, opts); break;
+          case 'gemini':              gen = this.streamGemini(messages, opts); break;
+          case 'claude':              gen = this.streamClaude(messages, opts); break;
+          case 'claude-subscription': gen = this.streamClaudeSubscription(messages, opts); break;
         }
         for await (const token of gen) {
           if (token) yield { token, provider: answerMode };

@@ -189,16 +189,25 @@ class SocketClient:
         except Exception as e:
             logger.error(f"Error sending process_transcription: {e}")
 
-    def send_interviewer_speech(self, text: str):
-        """Send a detected interviewer utterance to the server for question classification."""
+    def send_interviewer_speech(self, text: str, source: str = 'them'):
+        """Send a detected utterance to the server, tagged with its source.
+
+        source: 'them' (interviewer, loopback device) or 'me' (user, microphone).
+        Defaults to 'them' for backward compatibility with older callers.
+        """
         if not self.connected:
             logger.warning("Not connected — skipping interviewer speech")
             return
+
         if not text or not text.strip():
             return
         try:
-            self.sio.emit('interviewer_speech', {'text': text.strip(), 'timestamp': time.time()}, namespace=self.endpoint)
-            logger.debug(f"Sent interviewer speech: {text[:50]}…")
+            self.sio.emit(
+                'interviewer_speech',
+                {'text': text.strip(), 'timestamp': time.time(), 'source': source},
+                namespace=self.endpoint,
+            )
+            logger.debug(f"Sent interviewer speech [{source}]: {text[:50]}…")
         except Exception as e:
             logger.error(f"Error sending interviewer speech: {e}")
 

@@ -15,6 +15,7 @@ const KNOWN_PROVIDER_LABELS = {
   grok: 'Grok (Groq)',
   gemini: 'Gemini',
   claude: 'Claude (Anthropic)',
+  'claude-subscription': 'Claude Subscription',
 };
 
 // Fallback model lists per provider (used when live fetch fails or as initial options)
@@ -43,6 +44,11 @@ const FALLBACK_MODELS = {
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
     { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' },
   ],
+  'claude-subscription': [
+    { id: 'sonnet', name: 'Sonnet (default)' },
+    { id: 'opus', name: 'Opus' },
+    { id: 'haiku', name: 'Haiku' },
+  ],
 };
 
 const DEFAULT_MODELS = {
@@ -50,6 +56,7 @@ const DEFAULT_MODELS = {
   grok: 'llama-3.3-70b-versatile',
   gemini: 'gemini-2.5-flash',
   claude: 'claude-sonnet-4-5',
+  'claude-subscription': 'sonnet',
 };
 
 class ConfigController {
@@ -150,7 +157,7 @@ class ConfigController {
     try {
       const config = this._readConfig() || { keys: {}, order: [], enabled: [] };
 
-      const allKnownIds = ['openai', 'grok', 'gemini', 'claude'];
+      const allKnownIds = ['openai', 'grok', 'gemini', 'claude', 'claude-subscription'];
       const existingIds = new Set([
         ...(config.order || []),
         ...Object.keys(config.keys || {}).filter(k => k !== 'ollama_model'),
@@ -339,6 +346,50 @@ class ConfigController {
     } catch (err) {
       log.error('Error reading prompt preview', err);
       res.status(500).json({ success: false, error: 'Failed to read prompt' });
+    }
+  }
+
+  // ── Audio devices (proxy to Python transcriber) ────────────────────
+
+  async getAudioDevices(req, res) {
+    try {
+      const response = await fetch('http://localhost:8000/audio-devices');
+      if (!response.ok) {
+        const body = await response.text();
+        return res
+          .status(response.status)
+          .type(response.headers.get('content-type') || 'application/json')
+          .send(body);
+      }
+      const data = await response.json();
+      return res.json(data);
+    } catch (err) {
+      log.warn('Transcriber unreachable for GET /audio-devices', { error: err.message });
+      return res.status(503).json({
+        error: 'Transcriber not reachable',
+        detail: err.message,
+      });
+    }
+  }
+
+  async setAudioDevices(req, res) {
+    try {
+      const response = await fetch('http://localhost:8000/audio-devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(req.body || {}),
+      });
+      const body = await response.text();
+      return res
+        .status(response.status)
+        .type(response.headers.get('content-type') || 'application/json')
+        .send(body);
+    } catch (err) {
+      log.warn('Transcriber unreachable for POST /audio-devices', { error: err.message });
+      return res.status(503).json({
+        error: 'Transcriber not reachable',
+        detail: err.message,
+      });
     }
   }
 

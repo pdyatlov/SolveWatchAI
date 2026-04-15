@@ -309,10 +309,19 @@ class ScreenshotMonitorService {
 
     const filePath = `${CONFIG.SCREENSHOTS_PATH}/${filename}`;
 
-    log.info('New screenshot detected, waiting 2 seconds for coordinates', {
-      filename: filename,
-      filePath: filePath,
-    });
+    const isHotkey = filename.startsWith('hotkey-');
+
+    if (isHotkey) {
+      log.info('Hotkey screenshot detected, skipping wait-for-click', {
+        filename,
+        filePath,
+      });
+    } else {
+      log.info('New screenshot detected, waiting 2 seconds for coordinates', {
+        filename: filename,
+        filePath: filePath,
+      });
+    }
 
     try {
       // Small delay to ensure file is fully written to disk
@@ -332,8 +341,8 @@ class ScreenshotMonitorService {
         return;
       }
 
-      // Wait 2 seconds for mouse clicks to capture coordinates
-      const coordinates = await this.waitForCoordinates(2000);
+      // Hotkey captures skip the wait-for-click crop step entirely.
+      const coordinates = isHotkey ? null : await this.waitForCoordinates(2000);
 
       let imageToProcess = filePath;
       let filenameToProcess = filename;

@@ -97,6 +97,7 @@ class DataHandler extends EventEmitter {
     socket.on('use_prompt', (data) => this.handleUsePrompt(socket, data));
     socket.on('transcription', (data) => this.handleTranscription(socket, data));
     socket.on('process_transcription', () => this.handleProcessTranscription(socket));
+    socket.on('interviewer_speech', (data) => this.handleInterviewerSpeech(socket, data));
     socket.on('toggle_listen_mode', (data) => this.handleToggleListenMode(socket, data));
     socket.on('listen_state_update', (data) => this.namespace.emit('listen_state_changed', { listening: !!data.listening }));
     socket.on('set_stt_model', (data) => this.handleSetSttModel(socket, data));
@@ -280,15 +281,58 @@ class DataHandler extends EventEmitter {
 
     if (!fullTranscription) return;
 
+    await this._answerInterviewQuestionFromText(socket, fullTranscription, 'manual');
+  }
+
+  /**
+   * Handles a VAD-segmented utterance from the always-on listener.
+   * Unlike handleProcessTranscription, the text here is already complete —
+   * Python's AlwaysOnListener has done silence detection + transcription,
+   * so we emit it to the HUD for live display and trigger the Q&A pipeline
+   * immediately without chunk accumulation.
+   */
+  async handleInterviewerSpeech(socket, data) {
+    const text = (data?.text || '').trim();
+    if (!text) {
+      log.warn('Empty interviewer_speech received', { socketId: socket.id });
+      return;
+    }
+    const source = data?.source === 'me' ? 'me' : 'them';
+
+    // Forward to HUD with source so the chat strip knows which side to render.
+    this.namespace.emit('transcription_chunk', { text, source });
+    logEvent('transcription_chunk_received', 'DEBUG', {
+      module: 'DataHandler',
+      chunkLength: text.length,
+      source,
+    });
+
+    if (source === 'me') {
+      // Display + add to transcript buffer as context. No AI trigger.
+      this.transcriptBuffer.addUtterance(text, 'me');
+      return;
+    }
+
+    // source === 'them': run the existing Q&A pipeline.
+    await this._answerInterviewQuestionFromText(socket, text, 'always_on');
+  }
+
+  /**
+   * Shared Q&A pipeline: given a complete interviewer utterance, streams an
+   * AI answer to the HUD and stores message data keyed by questionId so the
+   * Debug/Theory/Coding buttons can re-prompt on it.
+   */
+  async _answerInterviewQuestionFromText(socket, fullTranscription, origin) {
     const questionId = `q-${Date.now()}`;
     const transcriptContext = this.transcriptBuffer.getTranscriptContext();
     const memoryContext = this.transcriptBuffer.getMemoryContext();
 
-    this.transcriptBuffer.addUtterance(fullTranscription);
+    this.transcriptBuffer.addUtterance(fullTranscription, 'them');
 
-    log.info('Processing manual transcription as interview question', {
+    log.info('Processing interviewer utterance', {
       socketId: socket.id,
       questionId,
+      origin,
       transcriptionLength: fullTranscription.length,
     });
 
@@ -302,15 +346,27 @@ class DataHandler extends EventEmitter {
         this.namespace.emit('question_answer_token', { token, questionId });
       }
 
-      this.namespace.emit('question_answer_complete', { questionId, response: fullResponse });
-      log.info('Manual question answered', { questionId, responseLength: fullResponse.length });
-      logEvent('manual_question_answered', 'INFO', { module: 'DataHandler', questionId, responseLength: fullResponse.length });
+      this.storeMessageData(
+        questionId,
+        fullTranscription,
+        fullResponse,
+        'interview-answer',
+        socket.id,
+      );
+
+      this.namespace.emit('question_answer_complete', {
+        questionId,
+        response: fullResponse,
+        messageId: questionId,
+      });
+      log.info('Interviewer utterance answered', { questionId, origin, responseLength: fullResponse.length });
+      logEvent('interviewer_question_answered', 'INFO', { module: 'DataHandler', questionId, origin, responseLength: fullResponse.length });
 
       if (fullTranscription && fullResponse) {
         this.transcriptBuffer.addQAPair(fullTranscription, fullResponse);
       }
     } catch (err) {
-      log.error('Error answering manual question', { questionId, error: err.message });
+      log.error('Error answering interviewer utterance', { questionId, origin, error: err.message });
       this.namespace.emit('question_answer_complete', { questionId, response: 'Error generating answer.' });
     }
   }

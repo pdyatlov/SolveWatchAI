@@ -20,4 +20,8 @@ router.get('/config/prompt-preview', (req, res) => configController.getPromptPre
 // ── Test provider connection ──────────────────────────────────────────
 router.post('/config/test-provider', (req, res) => configController.testProvider(req, res));
 
+// ── Audio devices (proxy to Python transcriber) ───────────────────────
+router.get('/audio-devices', (req, res) => configController.getAudioDevices(req, res));
+router.post('/audio-devices', (req, res) => configController.setAudioDevices(req, res));
+
 export default router;

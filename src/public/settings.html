@@ -388,6 +388,50 @@
     </div>
   </div>
 
+  <!-- ── Audio Devices ─────────────────────────────────────────── -->
+  <div class="section" id="audioDevicesSection">
+    <div class="section-header">
+      <span class="section-title">Audio Devices</span>
+    </div>
+    <div class="section-body">
+      <span class="hint">
+        Choose your microphone (captured as <strong>me</strong>) and the source for the other side of
+        the conversation (captured as <strong>them</strong>).
+      </span>
+
+      <div class="field">
+        <label for="audioMicSelect">Microphone</label>
+        <select id="audioMicSelect"></select>
+      </div>
+
+      <div class="field">
+        <label>Loopback source</label>
+        <label style="font-weight:normal;color:var(--text);display:flex;align-items:center;gap:8px;font-size:13px">
+          <input type="radio" name="loopbackMode" value="input_device" checked>
+          Virtual cable (input device — VB-Cable, BlackHole, VoiceMeeter)
+        </label>
+        <label style="font-weight:normal;color:var(--text);display:flex;align-items:center;gap:8px;font-size:13px">
+          <input type="radio" name="loopbackMode" value="wasapi_output">
+          <span>
+            Capture output (WASAPI loopback — Windows only)
+            <span class="hint" id="wasapiHint"></span>
+          </span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label for="audioLoopbackSelect">Loopback device</label>
+        <select id="audioLoopbackSelect"></select>
+      </div>
+
+      <div class="field" style="flex-direction:row;align-items:center;gap:10px;flex-wrap:wrap">
+        <button type="button" class="btn btn-secondary" id="audioSaveBtn">Save audio settings</button>
+        <button type="button" class="btn btn-ghost" id="audioAutoBtn">Auto-detect</button>
+        <span id="audioStatus" class="hint" style="flex:1"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Speech-to-Text ────────────────────────────────────────── -->
   <div class="section">
     <div class="section-header">
@@ -518,6 +562,7 @@ const PROVIDER_META = {
   grok:   { label: 'Groq',               ph: 'gsk_…',    icon: '🟣' },
   gemini: { label: 'Gemini',             ph: 'AIzaSy…',  icon: '🔵' },
   claude: { label: 'Claude (Anthropic)', ph: 'sk-ant-…', icon: '🟠' },
+  'claude-subscription': { label: 'Claude Subscription', ph: '', icon: '🟡', noKey: true },
 };
 
 function getMeta(id) {
@@ -599,32 +644,45 @@ function renderProviders() {
       ? models.map(m => `<option value="${esc(m.id)}" ${m.id === p.model ? 'selected' : ''}>${esc(m.name)}</option>`).join('')
       : `<option value="${esc(p.model || '')}">${esc(p.model || 'Loading…')}</option>`;
 
-    card.innerHTML = `
-      <div class="card-header">
-        <span class="drag-handle" title="Drag to reorder">⠿</span>
-        <span class="order-badge">${orderNum}</span>
-        <div class="provider-info">
-          <div class="provider-name">${esc(meta.label)}</div>
-          <div class="provider-sub">${esc(p.id)} · ${p.hasKey ? '🔑 key saved' : 'no key'}</div>
-        </div>
-        <div class="card-actions">
-          <label class="toggle" title="${p.enabled ? 'Enabled' : 'Disabled'}">
-            <input type="checkbox" class="prov-toggle" ${p.enabled ? 'checked' : ''} data-idx="${idx}">
-            <span class="toggle-track"></span>
-          </label>
-        </div>
-      </div>
-      <div class="provider-body">
-        <div class="key-row">
+    // Claude Subscription: no API key input — uses local Claude Code authentication.
+    const keyRowHtml = meta.noKey
+      ? `<div class="key-row">
+          <div class="key-wrap" style="padding:6px 10px;color:#9ca3af;font-size:12px">
+            Uses local Claude Code authentication — no API key needed.
+          </div>
+        </div>`
+      : `<div class="key-row">
           <div class="key-wrap">
             <input type="password" class="prov-key-input" autocomplete="off" data-idx="${idx}"
               placeholder="${p.hasKey ? '•••  leave blank to keep existing key' : meta.ph}">
             <button class="key-toggle" data-idx="${idx}">Show</button>
           </div>
           <button class="btn btn-ghost test-btn" data-idx="${idx}" title="Test connection">Test</button>
+        </div>`;
+
+    const subStatus = meta.noKey
+      ? (p.enabled || p.hasKey ? '✓ enabled' : 'disabled')
+      : (p.hasKey ? '🔑 key saved' : 'no key');
+
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="drag-handle" title="Drag to reorder">⠿</span>
+        <span class="order-badge">${orderNum}</span>
+        <div class="provider-info">
+          <div class="provider-name">${esc(meta.label)}</div>
+          <div class="provider-sub">${esc(p.id)} · ${subStatus}</div>
         </div>
+        <div class="card-actions">
+          <label class="toggle" title="${p.enabled ? 'Enabled' : 'Disabled'}">
+            <input type="checkbox" class="prov-toggle" id="provider-${esc(p.id)}-enabled" ${p.enabled ? 'checked' : ''} data-idx="${idx}">
+            <span class="toggle-track"></span>
+          </label>
+        </div>
+      </div>
+      <div class="provider-body">
+        ${keyRowHtml}
         <div class="model-row">
-          <select class="prov-model-select" data-idx="${idx}" title="Model to use">
+          <select class="prov-model-select" id="provider-${esc(p.id)}-model" data-idx="${idx}" title="Model to use">
             ${modelOptions}
           </select>
           <button class="btn btn-ghost reload-models-btn" data-idx="${idx}" title="Refresh model list" style="flex-shrink:0">↻</button>
@@ -780,7 +838,12 @@ function setupDragDrop() {
 // Fallback chain
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function updateFallbackChain() {
-  const enabled = providers.filter(p => p.enabled && (p.hasKey || p.newKey));
+  const enabled = providers.filter(p => {
+    if (!p.enabled) return false;
+    // claude-subscription uses local Claude Code auth — no key required.
+    if (getMeta(p.id).noKey) return true;
+    return p.hasKey || p.newKey;
+  });
   const chain   = document.getElementById('fallbackChain');
   const content = document.getElementById('chainContent');
 
@@ -919,12 +982,25 @@ async function saveSettings() {
   const opVal = +document.getElementById('opacitySlider').value;
 
   const payload = {
-    providers: providers.map(p => ({
-      id:      p.id,
-      key:     p.newKey || '',
-      enabled: p.enabled,
-      model:   p.model || '',
-    })),
+    providers: providers.map(p => {
+      // claude-subscription has no API key input — send sentinel 'enabled' when
+      // the toggle is on so the backend's non-blank-key filter treats it as configured.
+      // Always write the models entry (sonnet default).
+      if (getMeta(p.id).noKey) {
+        return {
+          id:      p.id,
+          key:     p.enabled ? 'enabled' : '',
+          enabled: p.enabled,
+          model:   p.model || 'sonnet',
+        };
+      }
+      return {
+        id:      p.id,
+        key:     p.newKey || '',
+        enabled: p.enabled,
+        model:   p.model || '',
+      };
+    }),
     stt_model:        sttModel,
     answer_mode:      'auto',
     hud_opacity:      opVal,
@@ -968,6 +1044,164 @@ socket.on('hud_opacity_saved', (v) => {
   setSlider('opacitySlider', v, 90);
   opacityVal.textContent = v + '%';
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Audio Devices (mic + loopback mode + loopback device)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(function initAudioDevices() {
+  const micSel = document.getElementById('audioMicSelect');
+  const lbSel = document.getElementById('audioLoopbackSelect');
+  const modeRadios = document.querySelectorAll('input[name="loopbackMode"]');
+  const saveBtn = document.getElementById('audioSaveBtn');
+  const autoBtn = document.getElementById('audioAutoBtn');
+  const status = document.getElementById('audioStatus');
+  const wasapiHint = document.getElementById('wasapiHint');
+
+  let allDevices = [];
+  let platform = '';
+
+  function setStatus(text, isError) {
+    status.textContent = text || '';
+    status.style.color = isError ? '#f87171' : '#86efac';
+  }
+
+  function currentMode() {
+    for (const r of modeRadios) if (r.checked) return r.value;
+    return 'input_device';
+  }
+
+  function populateMicOptions() {
+    micSel.innerHTML = '';
+    const opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = '— Auto-detect —';
+    micSel.appendChild(opt0);
+    for (const d of allDevices) {
+      if (d.max_input_channels > 0) {
+        const o = document.createElement('option');
+        o.value = String(d.index);
+        o.textContent = `${d.index}: ${d.name} (${d.hostapi_name}, ${d.max_input_channels} in)`;
+        micSel.appendChild(o);
+      }
+    }
+  }
+
+  function populateLoopbackOptions() {
+    lbSel.innerHTML = '';
+    const opt0 = document.createElement('option');
+    opt0.value = '';
+    opt0.textContent = '— Auto-detect —';
+    lbSel.appendChild(opt0);
+    const mode = currentMode();
+    for (const d of allDevices) {
+      let match = false;
+      if (mode === 'input_device') {
+        match = d.max_input_channels > 0;
+      } else {
+        match = d.max_output_channels > 0 && /wasapi/i.test(d.hostapi_name);
+      }
+      if (match) {
+        const o = document.createElement('option');
+        o.value = String(d.index);
+        const dir = mode === 'input_device'
+          ? `${d.max_input_channels} in`
+          : `${d.max_output_channels} out`;
+        o.textContent = `${d.index}: ${d.name} (${d.hostapi_name}, ${dir})`;
+        lbSel.appendChild(o);
+      }
+    }
+  }
+
+  function applyPlatformConstraints() {
+    const isWindows = platform === 'win32';
+    const wasapiRadio = document.querySelector('input[name="loopbackMode"][value="wasapi_output"]');
+    if (!isWindows) {
+      wasapiRadio.disabled = true;
+      wasapiHint.textContent = ' — unavailable on ' + platform;
+    } else {
+      wasapiRadio.disabled = false;
+      wasapiHint.textContent = '';
+    }
+  }
+
+  async function load() {
+    setStatus('Loading devices…');
+    try {
+      const res = await fetch('/api/audio-devices');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      allDevices = data.devices || [];
+      platform = data.platform || '';
+      applyPlatformConstraints();
+      // Preselect mode from current config
+      const curMode = (data.current && data.current.loopback_mode) || 'input_device';
+      for (const r of modeRadios) r.checked = (r.value === curMode);
+      populateMicOptions();
+      populateLoopbackOptions();
+      if (data.current && typeof data.current.mic_device_index === 'number') {
+        micSel.value = String(data.current.mic_device_index);
+      }
+      if (data.current && typeof data.current.loopback_device_index === 'number') {
+        lbSel.value = String(data.current.loopback_device_index);
+      }
+      setStatus('');
+    } catch (err) {
+      setStatus('Failed to load devices: ' + err.message, true);
+    }
+  }
+
+  for (const r of modeRadios) {
+    r.addEventListener('change', populateLoopbackOptions);
+  }
+
+  saveBtn.addEventListener('click', async () => {
+    setStatus('Saving…');
+    const payload = {
+      mic_device_index: micSel.value === '' ? null : parseInt(micSel.value, 10),
+      loopback_mode: currentMode(),
+      loopback_device_index: lbSel.value === '' ? null : parseInt(lbSel.value, 10),
+    };
+    try {
+      const res = await fetch('/api/audio-devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || err.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setStatus(
+        `Saved. ${data.was_running ? 'Restarted ' + data.started.join(', ') : 'Listeners not running'}.`
+      );
+    } catch (err) {
+      setStatus('Save failed: ' + err.message, true);
+    }
+  });
+
+  autoBtn.addEventListener('click', async () => {
+    setStatus('Clearing overrides and auto-detecting…');
+    try {
+      const res = await fetch('/api/audio-devices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mic_device_index: null,
+          loopback_mode: null,
+          loopback_device_index: null,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await load();  // refresh UI
+      setStatus('Auto-detect applied.');
+    } catch (err) {
+      setStatus('Auto-detect failed: ' + err.message, true);
+    }
+  });
+
+  load();
+})();
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Boot
