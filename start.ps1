@@ -14,7 +14,8 @@ param(
     [switch]$Setup,
     [switch]$SetupOnly,
     [switch]$NewLogs,
-    [switch]$Gpu
+    [switch]$Gpu,
+    [switch]$NoHide      # 04-02 D-11: debug escape hatch — skip console hide
 )
 
 # ── Encoding ──────────────────────────────────────────────────────────────────
@@ -151,6 +152,89 @@ function Wait-ForPort {
         if ($elapsed -ge $max) { Die "$Label did not start within ${max}s. Check logs: $LogHint" }
     }
     Ok "$Label is up."
+}
+
+# ── Win32 P/Invoke for console hide (04-02, D-08) ─────────────────────────────
+# Hide the PowerShell console window after all three services are ready (D-09),
+# restore it on mid-run failure (D-10) so the user can read error messages.
+#
+# CRITICAL: this only works under classic conhost.exe. Under Windows Terminal's
+# ConPTY, GetConsoleWindow returns a message-only HWND and SW_HIDE is a no-op.
+# start.bat MUST spawn us as `conhost.exe powershell -File ...` — see
+# .planning/phases/04-tray-startup-ux/04-RESEARCH.md §Q2 + Pitfall 1.
+$Win32ShowWindow = @'
+using System;
+using System.Runtime.InteropServices;
+public static class Win32ShowWindow {
+    [DllImport("kernel32.dll")]
+    public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+'@
+try {
+    Add-Type -TypeDefinition $Win32ShowWindow -Language CSharp -ErrorAction Stop
+} catch {
+    # Type already loaded from a previous invocation in the same session — benign.
+}
+$SW_HIDE    = 0
+$SW_RESTORE = 9   # Use for D-10 re-show — restores from minimized OR hidden state
+
+function Hide-ConsoleWindow {
+    if ($NoHide.IsPresent) {
+        Info "-NoHide set; console will remain visible."
+        return
+    }
+    $h = [Win32ShowWindow]::GetConsoleWindow()
+    if ($h -eq [IntPtr]::Zero) {
+        Warn "GetConsoleWindow returned NULL (pseudoconsole?) — console hide skipped."
+        return
+    }
+    [Win32ShowWindow]::ShowWindow($h, $SW_HIDE) | Out-Null
+}
+
+function Show-ConsoleWindow {
+    $h = [Win32ShowWindow]::GetConsoleWindow()
+    if ($h -eq [IntPtr]::Zero) { return }
+    [Win32ShowWindow]::ShowWindow($h, $SW_RESTORE) | Out-Null
+}
+
+# ── Electron readiness sentinel poll (04-02, D-09 step 3) ─────────────────────
+# Electron's app.whenReady handler writes logs/.electron-ready after tray init.
+# We poll at 200ms intervals up to 15s. Timeout → Die (leaves console visible).
+function Wait-ForElectronReady {
+    param([int]$TimeoutSec = 15)
+    $readyPath = Join-Path $LogsDir '.electron-ready'
+    $elapsed = 0.0
+    Log "Waiting for Electron HUD ready signal..."
+    while (-not (Test-Path -LiteralPath $readyPath)) {
+        Start-Sleep -Milliseconds 200
+        $elapsed += 0.2
+        if ($elapsed -ge $TimeoutSec) {
+            Die "Electron HUD did not write ready sentinel within ${TimeoutSec}s. Check logs\node-stderr.log and try running with -NoHide for diagnostics."
+        }
+    }
+    Ok "Electron HUD is ready."
+}
+
+# ── Pidfile atomic write (04-03, D-12) ────────────────────────────────────────
+# Writes logs/pids.json after all services are spawned. Electron reads it at
+# app.whenReady and uses managedPids to drive tray Stop all / Restart.
+#
+# Atomic via temp + Move-Item -Force (MoveFileEx on NTFS same-volume). Electron
+# readers either see the old content, the new content, or ENOENT — never a
+# partial write. Reference: 04-RESEARCH.md §Q6 + §Pitfall 8 (BOM-free UTF-8).
+function Write-PidFile {
+    param([string]$Path, [hashtable]$Data)
+    $tmp = "$Path.tmp"
+    $json = $Data | ConvertTo-Json -Compress -Depth 4
+    # [System.IO.File]::WriteAllText with UTF8Encoding($false) emits BOM-free
+    # UTF-8 — Node's JSON.parse tolerates BOM but the file is ugly in diffs.
+    # Don't use Set-Content / Out-File: PS 5.1 defaults to UTF-16-LE with BOM
+    # or UTF-8-with-BOM (cmdlet-dependent).
+    [System.IO.File]::WriteAllText($tmp, $json, [System.Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
 }
 
 # ── State ─────────────────────────────────────────────────────────────────────
@@ -403,7 +487,12 @@ try {
     Wait-ForPort -Port $NodePort -Label 'Node.js backend' -LogHint $AppJsonLog
 
     # ── 2. Python transcriber ─────────────────────────────────────────────────
-    Log "Starting Python transcriber (STT model: $WhisperModel)..."
+    # POLISH-03 dial 3: them-channel uses heavier distil-large-v3 by default for
+    # better interviewer-side recovery. Me-channel stays on $WhisperModel (lighter,
+    # mic input is cleaner so smaller model suffices). User can override via
+    # `$env:STT_MODEL_THEM = "..."` before invoking start.bat to change this.
+    if (-not $env:STT_MODEL_THEM) { $env:STT_MODEL_THEM = 'distil-large-v3' }
+    Log "Starting Python transcriber (me=$WhisperModel, them=$env:STT_MODEL_THEM)..."
     # Pass WHISPER_MODEL and AUDIO_INPUT_DEVICE via env, matching start.sh.
     $env:WHISPER_MODEL      = $WhisperModel
     $env:AUDIO_INPUT_DEVICE = $AudioDevice
@@ -421,6 +510,37 @@ try {
     $Pids += $electronProc.Id
     Ok "Electron HUD started (PID $($electronProc.Id))."
 
+    # ── 04-02 D-09 step 2: wait for Python transcriber on :8000 ───────────────
+    # Transcriber first-run may be slower than Node because faster-whisper has
+    # to load its model weights. 30s default in Wait-ForPort is adequate for
+    # subsequent runs; if the model cache is cold, set -NoHide and let the
+    # user watch the output.
+    Wait-ForPort -Port 8000 -Label 'Python transcriber' -LogHint $PythonLog
+
+    # ── 04-03 D-12: write pidfile BEFORE sentinel wait so Electron's readPidfile
+    # sees a ready file at app.whenReady time (Q6 revised ordering).
+    # ollamaPid / ollamaStartedByScript come from the earlier Ollama-launch block;
+    # $ollamaProc is only defined when $OllamaStarted===true.
+    $pidData = @{
+        nodePid               = $nodeProc.Id
+        pyPid                 = $pyProc.Id
+        ollamaPid             = if ($OllamaStarted) { $ollamaProc.Id } else { $null }
+        scriptPid             = $PID
+        ollamaStartedByScript = $OllamaStarted
+        timestamp             = (Get-Date).ToString('o')   # ISO 8601 for cross-platform parse
+    }
+    Write-PidFile -Path (Join-Path $LogsDir 'pids.json') -Data $pidData
+    Ok "Wrote pidfile: $(Join-Path $LogsDir 'pids.json')"
+
+    # ── 04-02 D-09 step 3: wait for Electron ready sentinel ────────────────────
+    Wait-ForElectronReady
+
+    # ── 04-02 D-08: all three services confirmed up → hide the console ────────
+    # -NoHide short-circuits this inside Hide-ConsoleWindow. On mid-run failure,
+    # the watch loop's break path calls Show-ConsoleWindow before falling into
+    # finally so the user sees the error + Read-Host pause.
+    Hide-ConsoleWindow
+
     # ── Status summary ────────────────────────────────────────────────────────
     Write-Host ""
     Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -435,9 +555,24 @@ try {
     Write-Host "  Structured JSON  -> logs\app.jsonl"
     Write-Host "  Transcriber text -> logs\transcriber.log"
     Write-Host ""
+    # Resolve the actual HUD-toggle binding from config/hotkeys.json (if saved),
+    # otherwise fall back to the factory default. Keeps the console reference line
+    # accurate after the user rebinds in Settings.
+    $hudAccelDisplay = 'Ctrl+Shift+H'
+    $hotkeysPath = Join-Path (Get-Location) 'config\hotkeys.json'
+    if (Test-Path -LiteralPath $hotkeysPath) {
+        try {
+            $hotkeysCfg = Get-Content -LiteralPath $hotkeysPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            if ($hotkeysCfg -and $hotkeysCfg.hud_toggle) {
+                $hudAccelDisplay = ($hotkeysCfg.hud_toggle -replace 'CommandOrControl', 'Ctrl') -replace 'CmdOrCtrl', 'Ctrl'
+            }
+        } catch {
+            # Corrupt or unreadable file — leave default display.
+        }
+    }
     Write-Host "  Quick links:"
     Write-Host "  Settings page   -> http://localhost:$NodePort/settings"
-    Write-Host "  Toggle HUD      -> Ctrl+Shift+H"
+    Write-Host "  Toggle HUD      -> $hudAccelDisplay"
     Write-Host "  Stop everything -> Ctrl+C"
     Write-Host ""
     Write-Host "  STT model: $WhisperModel"
@@ -469,11 +604,13 @@ try {
         $aliveNode = Get-Process -Id $nodeProc.Id -ErrorAction SilentlyContinue
         $alivePy   = Get-Process -Id $pyProc.Id   -ErrorAction SilentlyContinue
         if ($null -eq $aliveNode) {
+            Show-ConsoleWindow   # 04-02 D-10: re-show before falling into finally so user sees the error
             Log "Node.js backend (PID $($nodeProc.Id)) exited. Shutting down the rest..."
             Warn "Check logs\node-stderr.log for details."
             break
         }
         if ($null -eq $alivePy) {
+            Show-ConsoleWindow   # 04-02 D-10: re-show before falling into finally so user sees the error
             Log "Python transcriber (PID $($pyProc.Id)) exited. Shutting down the rest..."
             Warn "Check logs\transcriber-err.log for details."
             break
@@ -482,6 +619,11 @@ try {
     }
 
 } finally {
+    # 04-02 D-10: Ensure console is visible for cleanup output AND the Read-Host prompt
+    # below. Idempotent — if console was already visible (e.g., -NoHide, or SW_HIDE never
+    # fired because we Die'd before the readiness gate), this is a no-op.
+    Show-ConsoleWindow
+
     Write-Host ""
     Log "Shutting down all services..."
     foreach ($procId in $Pids) {
@@ -495,5 +637,21 @@ try {
     foreach ($jobId in $Jobs) {
         try { Stop-Job -Id $jobId -ErrorAction SilentlyContinue; Remove-Job -Id $jobId -Force -ErrorAction SilentlyContinue } catch {}
     }
+
+    # 04-02: remove the readiness sentinel so the next run doesn't see a stale file.
+    try { Remove-Item -LiteralPath (Join-Path $LogsDir '.electron-ready') -ErrorAction SilentlyContinue } catch {}
+
+    # 04-03: pidfile cleanup — alongside the sentinel so both ephemeral state
+    # files are gone by the time the next start.bat runs.
+    try { Remove-Item -LiteralPath (Join-Path $LogsDir 'pids.json')        -ErrorAction SilentlyContinue } catch {}
+
     Ok "All services stopped."
+
+    # 04-02 D-10: pause so the user can read error messages before the console vanishes.
+    # Only prompt when console was hidden at some point (i.e., not -NoHide). With
+    # -NoHide, the user is already watching a live console and Ctrl+C-triggered shutdowns
+    # shouldn't pause.
+    if (-not $NoHide.IsPresent) {
+        Read-Host 'Press Enter to close'
+    }
 }

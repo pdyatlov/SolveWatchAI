@@ -143,11 +143,20 @@ recordings/
 *.mp3
 *.m4a
 
+# Exception: commit the 2-minute POLISH-03 reference fixture (RESEARCH §Open Questions #4)
+!transcriber/fixtures/interview-sample-2min.wav
+
 # API Keys configuration
 config/api-keys.json
 
 # Email configuration
 config/email-config.json
+
+# User profile (Phase 5 / SESS-06) — PII, never commit
+config/profile.md
+
+# HUD window state (POLISH-01) — user-local geometry
+config/hud-window.json
 
 # Python virtual environment
 python-service/venv/
@@ -161,3 +170,5 @@ transcriber/venv/
 
 # Runtime data
 transcriptions.ndjson
+.planning/
+transcriber/models/
