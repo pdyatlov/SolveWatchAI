@@ -12,6 +12,7 @@ dotenv.config();
 const log = logger('AIService');
 
 const CONFIG_FILE_PATH = path.join(process.cwd(), 'config', 'api-keys.json');
+const PROFILE_FILE_PATH = path.join(process.cwd(), 'config', 'profile.md');
 
 const PROMPT_FILE_MAP = {
   system: 'system-prompt.txt',
@@ -21,6 +22,7 @@ const PROMPT_FILE_MAP = {
   coding: 'coding-prompt.txt',
   theory: 'theory-prompt.txt',
   'interview-answer': 'interview-answer-prompt.txt',
+  retrospective: 'retrospective-prompt.txt',
 };
 
 // Default models per provider (used if not set in config)
@@ -47,6 +49,17 @@ class AIService {
     // Watch config file and prompts directory for changes
     this._watchConfig();
     this._watchPrompts();
+
+    // Profile cache (Plan 05-02 / D-11)
+    this._profileCache = '';
+    this._loadProfile();
+    this._watchProfile();
+
+    // Inject profile cache into session recorder (Plan 05-01 / D-03 profile_snapshot)
+    // Lazy import to avoid circular dep risk (sessionRecorder doesn't import ai.service).
+    import('../services/session-recorder.service.js').then(({ default: sessionRecorder }) => {
+      sessionRecorder.setProfileProvider(() => this._profileCache || '');
+    }).catch((err) => log.warn('Could not wire profile provider into sessionRecorder', { error: err.message }));
   }
 
   // ==================== Config Management ====================
@@ -140,6 +153,47 @@ class AIService {
     } catch (err) {
       log.warn('Could not watch prompts directory', { error: err.message });
     }
+  }
+
+  // ── Profile cache (Plan 05-02 / D-11) ─────────────────────────────
+  _loadProfile() {
+    try {
+      this._profileCache = fs.existsSync(PROFILE_FILE_PATH)
+        ? fs.readFileSync(PROFILE_FILE_PATH, 'utf8')
+        : '';
+    } catch (err) {
+      log.warn('Could not load profile.md', { error: err.message });
+      this._profileCache = '';
+    }
+  }
+
+  _watchProfile() {
+    let debounceTimer = null;
+    try {
+      const configDir = path.dirname(PROFILE_FILE_PATH);
+      const filename  = path.basename(PROFILE_FILE_PATH);
+      if (fs.existsSync(configDir)) {
+        fs.watch(configDir, (event, changedFile) => {
+          if (changedFile === filename) {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => {
+              this._loadProfile();
+              log.info('Profile cache refreshed');
+            }, 150);
+          }
+        });
+      }
+    } catch (err) {
+      log.warn('Could not watch profile.md', { error: err.message });
+    }
+  }
+
+  // Public read accessor used by Plan 05-05 (retrospective controller)
+  getProfile() { return this._profileCache || ''; }
+
+  // Public write accessor used by Plan 05-02 saveProfile endpoint
+  setProfile(content) {
+    this._profileCache = typeof content === 'string' ? content : '';
   }
 
   readPromptFromFile(promptType = 'system') {
@@ -711,7 +765,9 @@ Question: ${question}`;
   async *answerInterviewQuestion(questionText, transcriptContext = '', memoryContext = '') {
     const template = this.readPromptFromFile('interview-answer');
     const rolePrefix = this._getRolePrefix();
+    const profile = this._profileCache || '';
     const basePrompt = template
+      .replace('{PROFILE}', profile ? `## Your Profile\n${profile}\n\n` : '')
       .replace('{TRANSCRIPT_CONTEXT}', transcriptContext || '(no context yet)')
       .replace('{MEMORY_CONTEXT}', memoryContext ? `## Conversation History\n${memoryContext}` : '');
     const systemPrompt = rolePrefix + basePrompt;

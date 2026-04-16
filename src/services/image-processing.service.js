@@ -2,6 +2,7 @@ import ocrService from './ocr.service.js';
 import aiService from './ai.service.js';
 import dotenv from 'dotenv';
 import logger from '../utils/logger.js';
+import sessionRecorder from './session-recorder.service.js';
 
 dotenv.config();
 
@@ -183,6 +184,22 @@ class ImageProcessingService {
           );
         }
       });
+
+      // Persist screenshot Q&A to session JSONL (Plan 05-01 / D-02 / Claude's Discretion A).
+      // imagePath is the absolute OS path of the screenshot
+      // (e.g. C:\Users\Darky\Pictures\Screen\hotkey-12345.png).
+      try {
+        sessionRecorder.recordScreenshotQa({
+          ocrText:        extractedText,
+          aiAnswer:       gptResponse.message.content,
+          provider:       provider,
+          model:          null,                            // model not currently surfaced by askGpt response
+          promptType:     promptType,                       // 'system' (initial screenshot processing)
+          screenshotPath: imagePath,
+        });
+      } catch (recErr) {
+        log.warn('Failed to record screenshot Q&A to session', { error: recErr.message });
+      }
 
       this.lastResponse = gptResponse.message.content;
 
