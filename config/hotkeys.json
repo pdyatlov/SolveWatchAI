@@ -1,0 +1,9 @@
+{
+  "hud_toggle": "CommandOrControl+Shift+O",
+  "listen_toggle": "CommandOrControl+Shift+X",
+  "screenshot": "CommandOrControl+Shift+P",
+  "prev_question": "CommandOrControl+Left",
+  "next_question": "CommandOrControl+Right",
+  "scroll_answer_up": "CommandOrControl+Shift+Up",
+  "scroll_answer_down": "CommandOrControl+Shift+M"
+}
