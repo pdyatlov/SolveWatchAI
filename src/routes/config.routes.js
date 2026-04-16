@@ -11,6 +11,14 @@ router.post('/config/keys', (req, res) => configController.saveApiKeys(req, res)
 router.get('/config/full', (req, res) => configController.getFullConfig(req, res));
 router.post('/config/full', (req, res) => configController.saveFullConfig(req, res));
 
+// ── Hotkeys (Phase 3) ─────────────────────────────────────────────────
+router.get('/config/hotkeys',  (req, res) => configController.getHotkeys(req, res));
+router.post('/config/hotkeys', (req, res) => configController.saveHotkeys(req, res));
+
+// ── Profile (Phase 5) ─────────────────────────────────────────────────
+router.get('/profile',  (req, res) => configController.getProfile(req, res));
+router.post('/profile', (req, res) => configController.saveProfile(req, res));
+
 // ── Model list for a provider ─────────────────────────────────────────
 router.get('/config/models/:providerId', (req, res) => configController.getProviderModels(req, res));
 
