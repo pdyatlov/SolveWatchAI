@@ -5,10 +5,14 @@ import Groq from 'groq-sdk';
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import logger from '../utils/logger.js';
+import aiService from '../services/ai.service.js';
 
 const log = logger('ConfigController');
 
 const CONFIG_FILE_PATH = path.join(process.cwd(), 'config', 'api-keys.json');
+const HOTKEYS_FILE_PATH = path.join(process.cwd(), 'config', 'hotkeys.json');
+const PROFILE_FILE_PATH = path.join(process.cwd(), 'config', 'profile.md');
+const PROFILE_MAX_BYTES = 65536; // 64 KB hard limit (security: oversized payload DoS). Soft warning at 8 KB lives in UI.
 
 const KNOWN_PROVIDER_LABELS = {
   openai: 'OpenAI',
@@ -59,6 +63,48 @@ const DEFAULT_MODELS = {
   'claude-subscription': 'sonnet',
 };
 
+// Whitelist of valid hotkey slot IDs — rejects unknown keys in POST payload (D-08, security: prototype pollution guard).
+const HOTKEY_SLOTS = [
+  'hud_toggle',        // global — HUD show/hide, also Hide-for-share (Phase 2 D-04/D-05)
+  'listen_toggle',     // global — start/stop always-on listening
+  'screenshot',        // global — capture screen under cursor
+  'prev_question',     // window-focused — previous Q&A in history
+  'next_question',     // window-focused — next Q&A in history
+  'scroll_answer_up',  // window-focused — scroll answer bubble up
+  'scroll_answer_down',// window-focused — scroll answer bubble down
+];
+
+// Factory defaults (D-13, D-04, D-05). Electron accelerator format (D-16).
+const DEFAULT_HOTKEYS = {
+  hud_toggle:          'CommandOrControl+Shift+H',
+  listen_toggle:       'CommandOrControl+Shift+X',
+  screenshot:          'CommandOrControl+Shift+P',
+  prev_question:       'CommandOrControl+Left',
+  next_question:       'CommandOrControl+Right',
+  scroll_answer_up:    'CommandOrControl+Shift+Up',
+  scroll_answer_down:  'CommandOrControl+Shift+Down',
+};
+
+// Accelerator token grammar — whitelist of allowed tokens (security: reject crafted strings before they reach Electron's globalShortcut).
+// Modifiers: CommandOrControl, CmdOrCtrl, Command, Cmd, Control, Ctrl, Shift, Alt, Option, AltGr, Super, Meta.
+// Keys: A-Z, 0-9, F1-F24, arrow keys, and a small set of named keys Electron supports.
+const HOTKEY_MODIFIER_TOKENS = new Set([
+  'CommandOrControl','CmdOrCtrl','Command','Cmd','Control','Ctrl',
+  'Shift','Alt','Option','AltGr','Super','Meta',
+]);
+const HOTKEY_NAMED_KEYS = new Set([
+  'Left','Right','Up','Down','Space','Tab','Backspace','Delete','Insert','Home','End','PageUp','PageDown','Escape','Enter','Return',
+  'Plus','numadd','numsub','nummult','numdiv','numdec','Capslock','Numlock','Scrolllock','PrintScreen',
+]);
+
+// Max payload size for POST body — well under express.json default (100kb) but explicit (security: DOS / oversized payload).
+const HOTKEYS_MAX_BYTES = 4096;
+
+// Server-side broadcast hook — dataHandler registers itself here on construction.
+// Used so the controller can emit `hotkeys_updated` on /data-updates without a circular import.
+let _hotkeyBroadcaster = null;
+export function registerHotkeyBroadcaster(fn) { _hotkeyBroadcaster = typeof fn === 'function' ? fn : null; }
+
 class ConfigController {
   getConfigFilePath() {
     const configDir = path.dirname(CONFIG_FILE_PATH);
@@ -76,6 +122,62 @@ class ConfigController {
     } catch {
       return null;
     }
+  }
+
+  // Read + parse config/hotkeys.json. Returns { hotkeys, warning? }.
+  // On missing file OR parse error: returns DEFAULT_HOTKEYS + warning string.
+  _readHotkeys() {
+    if (!fs.existsSync(HOTKEYS_FILE_PATH)) {
+      return { hotkeys: { ...DEFAULT_HOTKEYS }, warning: 'hotkeys.json not found, using defaults' };
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(HOTKEYS_FILE_PATH, 'utf8'));
+    } catch (err) {
+      return { hotkeys: { ...DEFAULT_HOTKEYS }, warning: 'hotkeys.json unparseable, using defaults' };
+    }
+    // Merge: unknown slots in the file are ignored; missing slots fall back to defaults.
+    const safe = Object.create(null);
+    for (const slot of HOTKEY_SLOTS) {
+      const v = parsed && typeof parsed[slot] === 'string' ? parsed[slot] : DEFAULT_HOTKEYS[slot];
+      safe[slot] = v;
+    }
+    return { hotkeys: safe };
+  }
+
+  // Validate accelerator string token-by-token. Returns null if valid, or error message.
+  _validateAccelerator(accel) {
+    if (accel === '') return null;  // empty string = slot intentionally cleared (D-06 Backspace)
+    if (typeof accel !== 'string') return 'must be a string';
+    if (accel.length > 64) return 'too long';
+    const parts = accel.split('+');
+    if (parts.length === 0) return 'empty accelerator';
+    const last = parts[parts.length - 1];
+    const modifiers = parts.slice(0, -1);
+    for (const m of modifiers) {
+      if (!HOTKEY_MODIFIER_TOKENS.has(m)) return `unknown modifier: ${m}`;
+    }
+    // Final token must be a single printable char (A-Z, 0-9) or a named key.
+    if (!(/^[A-Za-z0-9]$/.test(last) || /^F([1-9]|1[0-9]|2[0-4])$/.test(last) || HOTKEY_NAMED_KEYS.has(last))) {
+      return `unknown key: ${last}`;
+    }
+    return null;
+  }
+
+  // Detect duplicate accelerators across the seven slots. Returns array of { slot, accel, collidesWith } errors, or [].
+  _findHotkeyConflicts(map) {
+    const errors = [];
+    const seen = new Map();  // accel → first slot that used it
+    for (const slot of HOTKEY_SLOTS) {
+      const accel = map[slot];
+      if (accel === '' || accel == null) continue;  // empty = disabled, doesn't conflict
+      if (seen.has(accel)) {
+        errors.push({ slot, accel, collidesWith: seen.get(accel) });
+      } else {
+        seen.set(accel, slot);
+      }
+    }
+    return errors;
   }
 
   // ── Legacy endpoints (kept for backwards compat) ──────────────────
@@ -229,6 +331,15 @@ class ConfigController {
         }
       }
 
+      // If claude-subscription was toggled off, remove the 'enabled' sentinel
+      // from the stored keys so it does not linger in config/api-keys.json.
+      // (For all other providers, empty string means "no change"; this provider
+      // uses a non-secret sentinel value instead of a real API key.)
+      if (!enabledProviders.includes('claude-subscription') &&
+          mergedKeys['claude-subscription'] === 'enabled') {
+        delete mergedKeys['claude-subscription'];
+      }
+
       if (enabledProviders.length === 0 && order.length > 0) {
         return res.status(400).json({ success: false, error: 'At least one provider must be enabled' });
       }
@@ -253,6 +364,135 @@ class ConfigController {
     } catch (err) {
       log.error('Error saving full config', err);
       res.status(500).json({ success: false, error: 'Failed to save configuration' });
+    }
+  }
+
+  // ── Hotkeys (Phase 3) ──────────────────────────────────────────────
+
+  // GET /api/config/hotkeys
+  getHotkeys(req, res) {
+    try {
+      const { hotkeys, warning } = this._readHotkeys();
+      const payload = { success: true, hotkeys };
+      if (warning) payload.warning = warning;
+      return res.json(payload);
+    } catch (err) {
+      log.error('Error reading hotkeys config', err);
+      return res.status(500).json({ success: false, error: 'Failed to read hotkeys' });
+    }
+  }
+
+  // POST /api/config/hotkeys
+  // Body: { hotkeys: { hud_toggle: "CommandOrControl+Shift+H", ... } }
+  // Response: { success: true, hotkeys } OR { success: false, errors: [{ slot, accel, reason|collidesWith }] }
+  saveHotkeys(req, res) {
+    try {
+      // Payload size check (security: oversized payload DOS).
+      const raw = JSON.stringify(req.body || {});
+      if (raw.length > HOTKEYS_MAX_BYTES) {
+        return res.status(413).json({ success: false, error: 'payload too large' });
+      }
+
+      const input = req.body && typeof req.body === 'object' ? req.body.hotkeys : null;
+      if (!input || typeof input !== 'object' || Array.isArray(input)) {
+        return res.status(400).json({ success: false, error: 'body.hotkeys must be an object' });
+      }
+
+      // Build sanitized map — reject unknown slots (security: prototype pollution, __proto__, etc.).
+      const sanitized = Object.create(null);
+      const errors = [];
+      for (const slot of HOTKEY_SLOTS) {
+        const accel = Object.prototype.hasOwnProperty.call(input, slot)
+          ? input[slot]
+          : DEFAULT_HOTKEYS[slot];
+        const parseErr = this._validateAccelerator(accel);
+        if (parseErr) {
+          errors.push({ slot, accel, reason: parseErr });
+        } else {
+          sanitized[slot] = accel;
+        }
+      }
+      // Reject unknown slots explicitly — don't silently drop.
+      for (const key of Object.keys(input)) {
+        if (!HOTKEY_SLOTS.includes(key)) {
+          errors.push({ slot: key, reason: 'unknown slot' });
+        }
+      }
+      if (errors.length > 0) {
+        return res.status(400).json({ success: false, errors });
+      }
+
+      // Internal-conflict detection (HOTK-06, D-08).
+      const conflicts = this._findHotkeyConflicts(sanitized);
+      if (conflicts.length > 0) {
+        return res.status(400).json({ success: false, errors: conflicts });
+      }
+
+      // Atomic write: temp file + rename (security: file write race).
+      const configPath = HOTKEYS_FILE_PATH;
+      const configDir = path.dirname(configPath);
+      if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+      const tmpPath = configPath + '.tmp.' + process.pid + '.' + Date.now();
+      fs.writeFileSync(tmpPath, JSON.stringify(sanitized, null, 2), 'utf8');
+      fs.renameSync(tmpPath, configPath);
+
+      log.info('Hotkeys saved', { slots: HOTKEY_SLOTS.length });
+
+      // Broadcast to /data-updates subscribers (HUD renderer picks this up — see 03-03).
+      if (_hotkeyBroadcaster) {
+        try { _hotkeyBroadcaster({ hotkeys: sanitized }); }
+        catch (err) { log.warn('hotkey broadcast failed', { error: err.message }); }
+      }
+
+      return res.json({ success: true, hotkeys: sanitized });
+    } catch (err) {
+      log.error('Error saving hotkeys config', err);
+      return res.status(500).json({ success: false, error: 'Failed to save hotkeys' });
+    }
+  }
+
+  // ── Profile (Plan 05-02 / SESS-06, SESS-07) ────────────────────────
+
+  // GET /api/profile → { success: true, content: string }
+  getProfile(req, res) {
+    try {
+      let content = '';
+      if (fs.existsSync(PROFILE_FILE_PATH)) {
+        content = fs.readFileSync(PROFILE_FILE_PATH, 'utf8');
+      }
+      return res.json({ success: true, content });
+    } catch (err) {
+      log.error('Error reading profile.md', err);
+      return res.status(500).json({ success: false, error: 'Failed to read profile' });
+    }
+  }
+
+  // POST /api/profile  body: { content: string }
+  // Atomic temp+rename write. Refreshes the in-memory cache in ai.service synchronously.
+  saveProfile(req, res) {
+    try {
+      const content = (req.body && typeof req.body.content === 'string') ? req.body.content : '';
+      if (Buffer.byteLength(content, 'utf8') > PROFILE_MAX_BYTES) {
+        return res.status(413).json({ success: false, error: `Profile exceeds ${PROFILE_MAX_BYTES} bytes` });
+      }
+
+      const configDir = path.dirname(PROFILE_FILE_PATH);
+      if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+
+      // Atomic write — same pattern as saveHotkeys (line 432-434).
+      const tmpPath = PROFILE_FILE_PATH + '.tmp.' + process.pid + '.' + Date.now();
+      fs.writeFileSync(tmpPath, content, 'utf8');
+      fs.renameSync(tmpPath, PROFILE_FILE_PATH);
+
+      // Synchronous cache update so Plan 05-01 session_start sees the new profile immediately
+      // (fs.watch debounce is 150ms — would otherwise lose the race for an utterance arriving in that window).
+      try { aiService.setProfile(content); } catch (cacheErr) { log.warn('Profile cache refresh failed', { error: cacheErr.message }); }
+
+      log.info('Profile saved', { bytes: Buffer.byteLength(content, 'utf8') });
+      return res.json({ success: true });
+    } catch (err) {
+      log.error('Error saving profile.md', err);
+      return res.status(500).json({ success: false, error: 'Failed to save profile' });
     }
   }
 
@@ -442,4 +682,5 @@ class ConfigController {
   }
 }
 
+export { DEFAULT_HOTKEYS, HOTKEY_SLOTS };
 export default new ConfigController();
