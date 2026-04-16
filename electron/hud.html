@@ -93,6 +93,31 @@
       font-size: 11px;
     }
 
+    /* ── 06-05 POLISH add-on: gear button (D-15 top-right placement) ─── */
+    .gear-btn {
+      -webkit-app-region: no-drag;       /* clickable despite parent drag-region */
+      background: transparent;
+      border: none;
+      padding: 2px 4px;
+      margin-left: 6px;
+      cursor: pointer;
+      color: #94a3b8;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: background 0.12s, color 0.12s;
+    }
+    .gear-btn:hover {
+      background: rgba(148, 163, 184, 0.15);
+      color: #e2e8f0;
+    }
+    .gear-btn svg {
+      width: 14px;                       /* D-15 Claude's Discretion ~14px */
+      height: 14px;
+      display: block;
+    }
+
     /* ── Live transcription strip (chat bubbles) ──────────────────────── */
     .live-strip {
       display: flex;
@@ -456,6 +481,48 @@
 
     .action-btn.coding-btn:not(:disabled) { border-color: rgba(34,197,94,0.45); }
     .action-btn.coding-btn:not(:disabled):hover { background: rgba(34,197,94,0.15); color: #86efac; border-color: rgba(34,197,94,0.7); }
+
+    /* ── POLISH-04 D-12: AI answer visual emphasis ───────────────────── */
+    /* CSS accent — 2px left-border on list items and text-content paragraphs
+       inside AI answer bubbles. Scoped to .qa-answer so transcription strip
+       bubbles (.bubble.them / .bubble.me) are NOT affected. */
+    .qa-answer .md-list li {
+      border-left: 2px solid rgba(34, 197, 94, 0.4);   /* #22c55e @ 40% — matches bullet glyph */
+      padding-left: 14px;
+      margin-left: 2px;
+    }
+    .qa-answer .text-content {
+      border-left: 2px solid rgba(34, 197, 94, 0.25);  /* subtler on paragraphs */
+      padding-left: 10px;
+      margin-left: 2px;
+    }
+
+    /* Heuristic-emphasis spans — populated by applyEmphasis on question_answer_complete.
+       During streaming these classes do NOT appear; appear on final render only (D-13). */
+    .qa-answer .emph-first {
+      color: #f1f5f9;                                  /* brighter than text-content's #cbd5e1 */
+      font-weight: 600;                                /* match existing <strong> weight at line 322 */
+    }
+    .qa-answer .emph-conn {
+      color: #a78bfa;                                  /* lavender accent — distinct from green bullets */
+      font-weight: 600;
+    }
+
+    /* Optional: provider-badge enlargement — ONLY applies if a .bubble-badge element
+       is present in the AI answer DOM. In the current HUD the badge lives in the
+       settings modal retrospective card (Phase 5 D-06). This rule is defensive:
+       if/when a future plan adds a badge to the HUD AI bubble, it picks up the
+       enlarged variant automatically. Inert otherwise. */
+    .qa-answer .bubble-badge {
+      font-size: 11px;                                 /* was ~9px; now visible anchor */
+      padding: 2px 7px;
+      background: rgba(167, 139, 250, 0.18);
+      border: 1px solid rgba(167, 139, 250, 0.5);
+      color: #c4b5fd;
+      border-radius: 4px;
+      margin-right: 6px;
+      display: inline-block;
+    }
   </style>
 </head>
 <body>
@@ -469,6 +536,13 @@
         <span id="statusText">Connecting…</span>
         <span class="clock" id="clock">--:--:--</span>
       </div>
+      <!-- 06-05 POLISH add-on: gear opens the settings page in the default browser (D-14/D-15/D-16) -->
+      <button class="gear-btn" id="btnSettings" title="Open settings" aria-label="Open settings">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
     </div>
 
     <!-- Live transcription strip -->
@@ -519,6 +593,7 @@
     const btnTheory   = document.getElementById('btnTheory');
     const btnCoding   = document.getElementById('btnCoding');
     const actionStatus = document.getElementById('actionStatus');
+    const btnSettings  = document.getElementById('btnSettings');
 
     let currentMessageId = null;
     let countdownInterval = null;
@@ -622,6 +697,13 @@
 
     btnListen.addEventListener('click', () => toggleListen());
 
+    // 06-05 POLISH add-on: gear -> main process -> shell.openExternal (D-14, D-16)
+    // No hotkey — click-only per D-16. No URL passed from renderer — main uses a
+    // string literal per D-14 Security Domain (renderer cannot influence target URL).
+    if (btnSettings && window.hudAPI && window.hudAPI.openSettings) {
+      btnSettings.addEventListener('click', () => window.hudAPI.openSettings());
+    }
+
     if (window.hudAPI?.onToggleListen) {
       window.hudAPI.onToggleListen(() => toggleListen());
     }
@@ -679,6 +761,56 @@
       return html;
     }
 
+    // ── POLISH-04 D-12/D-13: AI answer emphasis post-processor ──────────
+    // Runs on ALREADY-ESCAPED HTML coming out of renderMarkdown. XSS-safe per
+    // RESEARCH §Pitfall 5: escapeHtml is called inside renderInline / renderTextBlock
+    // BEFORE any markup tags. The emphasis regex wraps escaped text fragments;
+    // no new XSS vector. Applied ONLY on question_answer_complete — never per-token.
+    //
+    // Note on text-content: renderTextBlock emits <div class="text-content">,
+    // NOT <p>. The regex below matches <li>, <p>, AND <div class="text-content">
+    // so paragraphs in the HUD's markdown output get first-clause bolding.
+
+    const EMPH_CONNECTIVES = ['because', 'however', 'the key is', 'note that', 'crucially', 'in other words'];
+    const EMPH_CONNECTIVE_RE = new RegExp(
+      '\\b(' + EMPH_CONNECTIVES.map(c => c.replace(/\s+/g, '\\s+')).join('|') + ')\\b',
+      'gi',
+    );
+
+    function boldFirstClause(html) {
+      // Match an opening <li>, <p>, or <div class="text-content"> tag followed by
+      // 3+ chars of text (no nested tag). Body capture stops at next '<'.
+      return html.replace(
+        /(<li[^>]*>|<p[^>]*>|<div class="text-content"[^>]*>)([^<]{3,})/gi,
+        (_m, openTag, body) => {
+          const commaIdx = body.search(/[,;]/);
+          const wordMatch = body.match(/^(?:\S+\s+){11}\S+/);  // 12 words
+          const wordIdx = wordMatch ? wordMatch[0].length : -1;
+          let cut;
+          if (commaIdx === -1 && wordIdx === -1) cut = body.length;
+          else if (commaIdx === -1) cut = wordIdx;
+          else if (wordIdx === -1) cut = commaIdx;
+          else cut = Math.min(commaIdx, wordIdx);
+          // Skip ultra-short (single-word) and ultra-long (untrimmed paragraph)
+          // candidates — emphasis would be noise rather than structure.
+          if (cut < 3 || cut > 120) return openTag + body;
+          return openTag + '<strong class="emph-first">' + body.slice(0, cut) + '</strong>' + body.slice(cut);
+        },
+      );
+    }
+
+    function highlightConnectives(html) {
+      // Connectives inside <code>/<pre> blocks get wrapped too; accepted as noise
+      // — connectives rarely live inside code snippets in AI interview answers.
+      return html.replace(EMPH_CONNECTIVE_RE, '<span class="emph-conn">$1</span>');
+    }
+
+    function applyEmphasis(html) {
+      // Order matters: bold first-clause first, then highlight connectives inside
+      // the (now-wrapped) text. Reversing nests pointlessly.
+      return highlightConnectives(boldFirstClause(html));
+    }
+
     // ── Q&A viewer ────────────────────────────────────────────────────
     function renderNav() {
       const total = allQAs.length;
@@ -728,7 +860,14 @@
       aEl.className = 'qa-answer';
       if (!qa.done && !qa.answer) {
         aEl.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+      } else if (qa.done) {
+        // POLISH-04 D-13: final render — apply emphasis post-processor.
+        // XSS-safe order (RESEARCH §Pitfall 5): applyEmphasis runs on the
+        // ESCAPED HTML string returned by renderMarkdown, never on raw qa.answer.
+        aEl.innerHTML = applyEmphasis(renderMarkdown(qa.answer));
       } else {
+        // Streaming state (qa.done === false, some qa.answer accumulated) —
+        // plain renderMarkdown, no emphasis, no flicker per D-13.
         aEl.innerHTML = renderMarkdown(qa.answer);
       }
       qaViewer.appendChild(aEl);
@@ -743,10 +882,26 @@
       renderCurrentQA(); // calls updateLiveStrip internally
     }
 
-    document.addEventListener('keydown', (e) => {
-      if (e.metaKey && e.key === 'ArrowLeft')  navigate(-1);
-      if (e.metaKey && e.key === 'ArrowRight') navigate(1);
-    });
+    // ── Navigate / scroll over IPC (Phase 3 post-UAT) ───────────────────
+    // All seven hotkey slots are globalShortcut in Electron main. Main sends IPC
+    // to the renderer for navigate and scroll actions so they work regardless of
+    // which window has keyboard focus (the user wants to scroll the answer while
+    // watching the interviewer video).
+
+    // Scroll the current answer bubble. The .qa-answer element itself is not scrollable
+    // (no overflow); the scrollable parent is .qa-viewer which has `flex: 1; overflow-y: auto`.
+    function scrollAnswer(delta) {
+      const el = document.querySelector('.qa-viewer');
+      if (!el) return;
+      el.scrollBy({ top: delta, behavior: 'auto' });
+    }
+
+    if (window.hudAPI?.onNavigate) {
+      window.hudAPI.onNavigate((delta) => navigate(delta));
+    }
+    if (window.hudAPI?.onScrollAnswer) {
+      window.hudAPI.onScrollAnswer((delta) => scrollAnswer(delta));
+    }
 
     btnPrev.addEventListener('click', () => navigate(-1));
     btnNext.addEventListener('click', () => navigate(1));
@@ -754,9 +909,56 @@
     // ── Socket ────────────────────────────────────────────────────────
     const socket = io(socketUrl + '/data-updates', { transports: ['websocket'] });
 
-    socket.on('connect',       () => setConnectionStatus(true,  'Connected'));
+    // Initial hotkey map fetch — on first connect, pull the current config.
+    async function fetchAndApplyHotkeys() {
+      try {
+        const res  = await fetch(socketUrl + '/api/config/hotkeys');
+        const data = await res.json();
+        if (data.success && data.hotkeys) applyHotkeys(data.hotkeys);
+      } catch (err) {
+        console.warn('[hotkeys] initial fetch failed, using defaults:', err);
+      }
+    }
+
+    function applyHotkeys(fullMap) {
+      // Forward the full map to Electron main for globalShortcut re-registration.
+      // All seven slots are global now — renderer no longer owns any keymap.
+      if (window.hudAPI?.updateHotkeys) {
+        window.hudAPI.updateHotkeys(fullMap);
+      }
+    }
+
+    socket.on('connect', () => {
+      setConnectionStatus(true, 'Connected');
+      // Re-fetch on every (re)connect so we never desync after a transient disconnect.
+      fetchAndApplyHotkeys();
+    });
     socket.on('disconnect',    () => setConnectionStatus(false, 'Disconnected'));
     socket.on('connect_error', () => setConnectionStatus(false, 'Error'));
+
+    socket.on('hotkeys_updated', (data) => {
+      if (data && data.hotkeys) applyHotkeys(data.hotkeys);
+    });
+
+    // Subscribe to register-failure events from Electron main. Relay through our Socket.IO
+    // connection so the Settings page (a different /data-updates client) sees it too.
+    if (window.hudAPI?.onHotkeyRegisterFailed) {
+      window.hudAPI.onHotkeyRegisterFailed((data) => {
+        if (!data || !data.slot) return;
+        socket.emit('hotkey_register_failed_relay', data);
+      });
+    }
+
+    // Relay Settings-page record-mode pause/resume to Electron main, so the
+    // global shortcut is temporarily unbound while the user is capturing a new combo
+    // (Gap A closure — without this, pressing Ctrl+Shift+H in Settings also fires
+    // the HUD toggle because globalShortcut intercepts at OS level).
+    socket.on('hotkeys_capture_changed', (data) => {
+      if (!data) return;
+      if (window.hudAPI?.setCapturePause) {
+        window.hudAPI.setCapturePause(!!data.paused);
+      }
+    });
 
     socket.on('hud_opacity_updated', (data) => {
       applyOpacity(data.value);
