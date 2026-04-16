@@ -16,11 +16,20 @@ logger = logging.getLogger(__name__)
 # Default HuggingFace repo for each canonical model size.
 # Distil-small.en is introduced in Task 7 via ``resolve_repo``.
 MODEL_MAP = {
-    "tiny":   "Systran/faster-whisper-tiny",
-    "base":   "Systran/faster-whisper-base",
-    "small":  "Systran/faster-whisper-small",
-    "medium": "Systran/faster-whisper-medium",
-    "large":  "Systran/faster-whisper-large-v3",
+    "tiny":             "Systran/faster-whisper-tiny",
+    "base":             "Systran/faster-whisper-base",
+    "small":            "Systran/faster-whisper-small",
+    "medium":           "Systran/faster-whisper-medium",
+    "large":            "Systran/faster-whisper-large-v3",
+    # POLISH-03 dial 3 — CT2-converted distil-large-v3 hosted by Systran.
+    # NOTE: RESEARCH §Pitfall 7 originally specified `distil-whisper/distil-large-v3`,
+    # but that namespace publishes only the PyTorch transformers format (no model.bin).
+    # faster-whisper / CTranslate2 requires the CT2-converted variant — Systran hosts
+    # the canonical conversion at `Systran/faster-distil-whisper-large-v3`. Verified
+    # at runtime against the POLISH-03 fixture; the distil-whisper/ path raised
+    # "Unable to open file 'model.bin'" before this correction.
+    # 756M params, English-only, ~0.8 GB, within ~1% WER of large-v3.
+    "distil-large-v3":  "Systran/faster-distil-whisper-large-v3",
 }
 
 
@@ -109,6 +118,9 @@ if __name__ == "__main__":
     assert resolve_repo("medium", "en")== "Systran/faster-whisper-medium"
     assert resolve_repo("large", "en") == "Systran/faster-whisper-large-v3"
     assert resolve_repo("large", None) == "Systran/faster-whisper-large-v3"
+    # POLISH-03 dial 3 assertions (CT2-converted variant hosted by Systran — see MODEL_MAP comment)
+    assert resolve_repo("distil-large-v3", "en")   == "Systran/faster-distil-whisper-large-v3"
+    assert resolve_repo("distil-large-v3", None)   == "Systran/faster-distil-whisper-large-v3"
     try:
         resolve_repo("bogus", "en")
     except ValueError as e:

@@ -20,6 +20,9 @@ import { logEvent } from '../utils/file-logger.js';
 import aiService from '../services/ai.service.js';
 import imageProcessingService from '../services/image-processing.service.js';
 import InterviewTranscriptBuffer from './InterviewTranscriptBuffer.js';
+import { registerHotkeyBroadcaster } from '../controllers/config.controller.js';
+import { registerRetrospectiveBroadcaster } from '../controllers/sessions.controller.js';
+import sessionRecorder from '../services/session-recorder.service.js';
 
 const log = logger('DataHandler');
 
@@ -54,6 +57,31 @@ class DataHandler extends EventEmitter {
 
   setupNamespace() {
     this.namespace = this.io.of('/data-updates');
+    // Allow config.controller to broadcast hotkey updates on our namespace (Phase 3, 03-01 Task 2C).
+    // This closure captures `this` and is registered exactly once per DataHandler instance.
+    // Safe because setupNamespace is called once from the constructor and this.namespace is stable thereafter.
+    registerHotkeyBroadcaster((payload) => {
+      if (this.namespace) {
+        this.namespace.emit('hotkeys_updated', payload);
+      }
+    });
+    // Plan 05-05 / D-13: retrospective_* events broadcast to /data-updates.
+    registerRetrospectiveBroadcaster((event, payload) => {
+      if (this.namespace) {
+        this.namespace.emit(event, payload);
+      }
+    });
+    // Plan 05-01 / D-03: provide settings_snapshot for the session_start header.
+    sessionRecorder.setSettingsProvider(() => {
+      const cfg = aiService.config || {};
+      const primary = (cfg.enabled && cfg.enabled[0]) || (cfg.order && cfg.order[0]) || null;
+      return {
+        provider:    primary,
+        model:       cfg.models ? (cfg.models[primary] || null) : null,
+        stt_model:   cfg.stt_model   || null,
+        answer_mode: aiService._answerMode || cfg.answer_mode || 'auto',
+      };
+    });
     log.info('Setting up /data-updates namespace');
     this.namespace.on('connection', (socket) => {
       this.handleConnection(socket);
@@ -99,12 +127,23 @@ class DataHandler extends EventEmitter {
     socket.on('process_transcription', () => this.handleProcessTranscription(socket));
     socket.on('interviewer_speech', (data) => this.handleInterviewerSpeech(socket, data));
     socket.on('toggle_listen_mode', (data) => this.handleToggleListenMode(socket, data));
-    socket.on('listen_state_update', (data) => this.namespace.emit('listen_state_changed', { listening: !!data.listening }));
+    socket.on('listen_state_update', (data) => {
+      sessionRecorder.onListenStateChanged({ listening: !!data.listening });  // Plan 05-01 / D-01
+      this.namespace.emit('listen_state_changed', { listening: !!data.listening });
+    });
     socket.on('set_stt_model', (data) => this.handleSetSttModel(socket, data));
     socket.on('set_answer_mode', (data) => this.handleSetAnswerMode(socket, data));
     socket.on('get_settings', () => this.handleGetSettings(socket));
     socket.on('set_hud_opacity', (data) => this.handleSetHudOpacity(data));
     socket.on('set_vad_config', (data) => this.handleSetVadConfig(socket, data));
+    socket.on('hotkey_register_failed_relay', (data) => {
+      if (this.namespace) this.namespace.emit('hotkey_register_failed', data);
+    });
+    socket.on('hotkeys_capture_changed', (data) => {
+      // Settings page entered/left record mode — rebroadcast so HUD renderer can
+      // relay to Electron main and temporarily suspend globalShortcut.
+      if (this.namespace) this.namespace.emit('hotkeys_capture_changed', { paused: !!(data && data.paused) });
+    });
   }
 
   handleDisconnect(socket, reason) {
@@ -307,6 +346,9 @@ class DataHandler extends EventEmitter {
       source,
     });
 
+    // Persist to session JSONL (Plan 05-01 / SESS-01, SESS-02). 'me' utterances persist too (D-02).
+    sessionRecorder.recordUtterance({ speaker: source, text });
+
     if (source === 'me') {
       // Display + add to transcript buffer as context. No AI trigger.
       this.transcriptBuffer.addUtterance(text, 'me');
@@ -340,9 +382,11 @@ class DataHandler extends EventEmitter {
     this.namespace.emit('question_answer_started', { questionId });
 
     let fullResponse = '';
+    let answerProvider = 'unknown';
     try {
-      for await (const { token } of aiService.answerInterviewQuestion(fullTranscription, transcriptContext, memoryContext)) {
+      for await (const { token, provider } of aiService.answerInterviewQuestion(fullTranscription, transcriptContext, memoryContext)) {
         fullResponse += token;
+        if (provider) answerProvider = provider;
         this.namespace.emit('question_answer_token', { token, questionId });
       }
 
@@ -358,6 +402,15 @@ class DataHandler extends EventEmitter {
         questionId,
         response: fullResponse,
         messageId: questionId,
+      });
+      // Persist AI answer to session JSONL (Plan 05-01 / SESS-02).
+      // question_ref ties this answer back to the originating them utterance via questionId.
+      sessionRecorder.recordAiAnswer({
+        text: fullResponse,
+        provider: answerProvider,
+        model: null,                             // model isn't surfaced by answerInterviewQuestion; null acceptable
+        promptType: 'interview-answer',
+        questionRef: questionId,
       });
       log.info('Interviewer utterance answered', { questionId, origin, responseLength: fullResponse.length });
       logEvent('interviewer_question_answered', 'INFO', { module: 'DataHandler', questionId, origin, responseLength: fullResponse.length });
@@ -553,6 +606,7 @@ class DataHandler extends EventEmitter {
       });
       log.info('Listen mode toggled', { enabled });
       logEvent(enabled ? 'listen_started' : 'listen_stopped', 'INFO', { module: 'DataHandler' });
+      sessionRecorder.onListenStateChanged({ listening: !!enabled });  // Plan 05-01 / D-01
       this.namespace.emit('listen_state_changed', { listening: !!enabled });
     } catch (err) {
       log.warn('Could not reach Python transcriber to toggle listen mode', { error: err.message });

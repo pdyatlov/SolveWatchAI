@@ -29,3 +29,4 @@ scikit-learn>=1.3.0
 pydantic>=2.5.0
 python-dotenv>=1.0.0
 pynput>=1.7.6  # Keyboard input handling for push-to-record
+jiwer>=3.0       # POLISH-03 WER harness (transcriber/fixtures/measure_stt.py)

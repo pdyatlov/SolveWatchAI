@@ -76,6 +76,73 @@
     label { font-size: 12px; font-weight: 500; color: #94a3b8; }
     .hint { font-size: 11px; color: var(--muted); }
 
+    /* ── Hotkeys section (Phase 3) ─────────────────────── */
+    .hotkey-banner {
+      padding: 10px 14px; margin-bottom: 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      background: var(--red-dim); color: var(--red);
+      border: 1px solid var(--red);
+      display: none;
+    }
+    .hotkey-banner.show { display: block; }
+
+    .hotkey-row {
+      display: grid;
+      grid-template-columns: 1fr 220px;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .hotkey-row:last-of-type { border-bottom: none; }
+    .hotkey-row-label { font-size: 13px; color: var(--text); }
+    .hotkey-row-hint  { font-size: 11px; color: var(--muted); display: block; margin-top: 2px; }
+
+    .hotkey-capture {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 7px;
+      color: var(--text);
+      font-size: 12px;
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      padding: 7px 10px;
+      text-align: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .hotkey-capture.recording {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+    .hotkey-capture.invalid {
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    .hotkey-row-error {
+      grid-column: 1 / -1;
+      font-size: 11px;
+      color: var(--red);
+      margin-top: -4px;
+    }
+    .hotkey-row-warning {
+      grid-column: 1 / -1;
+      font-size: 11px;
+      color: var(--yellow);
+      margin-top: -4px;
+    }
+
+    .hotkey-actions {
+      display: flex; gap: 10px; margin-top: 16px;
+      padding-top: 14px; border-top: 1px solid var(--border);
+    }
+    .hotkey-actions button { font-size: 12px; padding: 7px 14px; border-radius: 7px; cursor: pointer; }
+    .hotkey-actions .btn-save  { background: var(--accent); color: white; border: none; }
+    .hotkey-actions .btn-save:disabled { opacity: 0.4; cursor: not-allowed; }
+    .hotkey-actions .btn-reset { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
+
     input[type="text"], input[type="password"], select, textarea {
       background: var(--surface2);
       border: 1px solid var(--border2);
@@ -253,6 +320,130 @@
     .banner-info { background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.18); color: #93c5fd; }
     .banner-ok   { background: var(--green-dim); border: 1px solid rgba(34,197,94,0.25); color: #86efac; }
 
+    /* ── Profile section (Phase 5 / 5-E) ─────────────── */
+    .profile-textarea {
+      width: 100%;
+      min-height: 140px;
+      max-height: 360px;
+      resize: vertical;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 7px;
+      color: var(--text);
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      padding: 10px 12px;
+      transition: border-color 0.15s;
+    }
+    .profile-textarea:focus {
+      outline: none;
+      border-color: rgba(59,130,246,0.5);
+    }
+    .profile-counter {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
+      margin-top: 4px;
+    }
+    .profile-counter.warn { color: var(--yellow); }
+    .profile-warn-banner {
+      display: none;
+      padding: 9px 13px;
+      border-radius: 7px;
+      font-size: 12px;
+      background: rgba(250, 204, 21, 0.08);
+      border: 1px solid rgba(250, 204, 21, 0.28);
+      color: var(--yellow);
+      line-height: 1.5;
+      margin-bottom: 8px;
+    }
+    .profile-warn-banner.show { display: block; }
+    .profile-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 10px;
+      border-top: 1px solid var(--border);
+      margin-top: 16px;
+      padding-top: 14px;
+    }
+    .profile-status { font-size: 11px; color: var(--muted); margin-right: auto; }
+    .profile-status.ok  { color: #86efac; }
+    .profile-status.err { color: var(--red); }
+
+    /* ── Session History (Phase 5 / 5-A) ─────────────── */
+    .session-table { display: flex; flex-direction: column; gap: 0; }
+    .session-table-head {
+      display: grid;
+      grid-template-columns: 1fr 80px 80px 64px 36px;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0 8px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 400;
+      text-transform: none;
+    }
+    .session-table-head > :nth-child(2),
+    .session-table-head > :nth-child(3),
+    .session-table-head > :nth-child(4) { text-align: right; }
+
+    .session-row {
+      display: grid;
+      grid-template-columns: 1fr 80px 80px 64px 36px;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .session-row:hover { background: rgba(59,130,246,0.04); }
+    .session-row:hover .session-col-trash { opacity: 1; }
+    .session-row:last-of-type { border-bottom: none; }
+    .session-col-time   { font-size: 13px; color: var(--text); }
+    .session-col-dur    { font-size: 11px; color: var(--muted); text-align: right; }
+    .session-col-count  { font-size: 11px; color: var(--muted); text-align: right; }
+    .session-col-size   { font-size: 11px; color: var(--muted); text-align: right; }
+    .session-col-trash {
+      width: 28px; height: 28px;
+      display: inline-flex; align-items: center; justify-content: center;
+      background: transparent; border: none; padding: 4px;
+      color: var(--muted); cursor: pointer; opacity: 0;
+      transition: opacity 0.15s, color 0.15s;
+      font-size: 14px;
+    }
+    .session-col-trash:hover { color: var(--red); }
+    .session-row.active .session-col-time::after {
+      content: ' (in progress)';
+      color: var(--green);
+      font-size: 11px;
+      margin-left: 6px;
+    }
+
+    .session-empty {
+      padding: 32px 12px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .session-empty strong { color: var(--text); display: block; font-size: 13px; margin-bottom: 4px; }
+
+    /* Inline delete confirmation strip (5-A-delete) */
+    .session-row.confirming {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      align-items: center;
+      cursor: default;
+      background: var(--surface2);
+    }
+    .session-confirm-text { font-size: 12px; color: var(--text); }
+    .session-confirm-actions { display: flex; gap: 6px; }
+
     /* ── Accordion (prompt preview) ──────────────── */
     .accordion-btn {
       display: flex; align-items: center; justify-content: space-between;
@@ -272,6 +463,220 @@
       cursor: pointer; font-family: inherit;
     }
     .prompt-tab.active { background: var(--accent-dim); border-color: rgba(59,130,246,0.3); color: #93c5fd; }
+
+    /* ── Session detail modal (Phase 5 / 5-B, 5-C) ──── */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 500;
+      background: rgba(0, 0, 0, 0.65);
+      display: none;
+      align-items: flex-start; justify-content: center;
+      padding: 40px 24px 24px;
+      overflow-y: auto;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-panel {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 680px;
+      max-height: calc(100vh - 80px);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+      gap: 12px;
+    }
+    .modal-title {
+      font-size: 13px; font-weight: 600; color: var(--text);
+      flex: 1; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .modal-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+    .modal-actions .btn { font-size: 12px; padding: 6px 12px; }
+    .modal-close {
+      width: 28px; height: 28px;
+      border-radius: 6px;
+      background: transparent;
+      border: 1px solid var(--border2);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .modal-close:hover { color: var(--text); }
+    .modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .modal-body::-webkit-scrollbar { width: 6px; }
+    .modal-body::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+    .transcript-stream { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.35; }
+
+    /* Bubble CSS extracted from electron/hud.html lines 113-130 */
+    .bubble {
+      max-width: 78%;
+      padding: 4px 8px;
+      border-radius: 10px;
+      word-break: break-word;
+    }
+    .bubble.them {
+      align-self: flex-start;
+      background: rgba(71, 85, 105, 0.45);
+      color: #cbd5e1;
+      border-bottom-left-radius: 3px;
+    }
+    .bubble.me {
+      align-self: flex-end;
+      background: rgba(30, 64, 175, 0.4);
+      color: #bfdbfe;
+      border-bottom-right-radius: 3px;
+    }
+    .bubble.ai {
+      align-self: stretch;
+      max-width: 100%;
+      background: rgba(30, 32, 44, 0.7);
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 8px 12px;
+      line-height: 1.6;
+      margin-top: 4px;
+      white-space: pre-wrap;
+    }
+    .bubble-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      color: #64748b;
+      background: rgba(71, 85, 105, 0.2);
+      border: 1px solid rgba(71, 85, 105, 0.3);
+      border-radius: 4px;
+      padding: 1px 5px;
+      margin-bottom: 4px;
+    }
+    .bubble-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      color: var(--muted);
+      margin-bottom: 2px;
+    }
+
+    /* Screenshot Q&A entry */
+    .screenshot-entry {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 8px 10px;
+      background: rgba(20, 22, 32, 0.4);
+      border-radius: 8px;
+      border-left: 2px solid rgba(148, 163, 184, 0.25);
+    }
+    .screenshot-thumb {
+      max-width: 160px;
+      border-radius: 4px;
+      cursor: pointer;
+      align-self: flex-start;
+    }
+    .screenshot-link {
+      font-size: 11px;
+      color: #93c5fd;
+      text-decoration: underline;
+      cursor: pointer;
+      word-break: break-all;
+    }
+
+    /* ── Retrospective card (Phase 5 / 5-D) ─────────── */
+    .retro-card {
+      flex-shrink: 0;
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: rgba(15, 17, 23, 0.85);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-top: 2px solid rgba(148, 163, 184, 0.35);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .retro-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .retro-card-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .retro-card-actions { display: flex; gap: 6px; }
+    .btn-retro-copy, .btn-retro-rerun {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 5px;
+      border: 1px solid var(--border2);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .btn-retro-copy:hover, .btn-retro-rerun:hover { color: var(--text); border-color: rgba(148,163,184,0.4); }
+    .btn-retro-rerun:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-retro-copy.copied { color: #86efac; border-color: rgba(34,197,94,0.35); }
+    .btn-retro-copy.failed { color: var(--red); border-color: rgba(239,68,68,0.35); }
+    .retro-card-body {
+      font-size: 13px;
+      line-height: 1.6;
+      color: #cbd5e1;
+      word-break: break-word;
+      white-space: pre-wrap;
+    }
+    .retro-generating {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      font-style: italic;
+    }
+    .retro-dots {
+      display: inline-flex;
+      gap: 3px;
+    }
+    .retro-dots span {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--muted);
+      animation: retroBounce 1.2s infinite ease-in-out;
+    }
+    .retro-dots span:nth-child(2) { animation-delay: 0.15s; }
+    .retro-dots span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes retroBounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40%           { transform: scale(1);   opacity: 1; }
+    }
+    .stream-cursor {
+      display: inline-block;
+      color: var(--accent);
+      font-weight: 400;
+      animation: blink 1s step-end infinite;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+    .retro-error { color: var(--red); }
 
     /* ── Save bar ────────────────────────────────── */
     .save-bar {
@@ -335,6 +740,50 @@
       </div>
 
       <div class="provider-list" id="providerList"></div>
+    </div>
+  </div>
+
+  <!-- ── Profile (Phase 5 / SESS-06, SESS-07) ───────────────────── -->
+  <div class="section" id="profileSection">
+    <div class="section-header">
+      <span class="section-title">Profile</span>
+      <span style="font-size:11px;color:var(--muted)">Prepended to interview-answer prompts</span>
+    </div>
+    <div class="section-body">
+      <div id="profileWarnBanner" class="profile-warn-banner" role="status">
+        Profile is getting long — responses may be slower for the first token.
+      </div>
+      <div class="field">
+        <label for="profileTextarea" style="font-weight:400">Stable facts about you (markdown)</label>
+        <textarea id="profileTextarea" class="profile-textarea" placeholder="e.g.&#10;I'm a senior backend engineer with 8 years of experience in Python and distributed systems.&#10;Currently interviewing for Staff Engineer roles at fintech companies.&#10;Strengths: system design, reliability, incident management.&#10;Prefer concise, direct answers with concrete examples."></textarea>
+        <div id="profileCounter" class="profile-counter" aria-live="polite" aria-label="Character count">0 / 8000</div>
+      </div>
+      <div class="profile-actions">
+        <span id="profileStatus" class="profile-status"></span>
+        <button type="button" class="btn btn-primary" id="profileSaveBtn">Save Profile</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Session History (Phase 5 / SESS-03) ────────────────────── -->
+  <div class="section" id="sessionHistorySection">
+    <div class="section-header">
+      <span class="section-title">Session History</span>
+      <span style="font-size:11px;color:var(--muted)">Newest first</span>
+    </div>
+    <div class="section-body">
+      <div class="session-table-head">
+        <span>Started</span>
+        <span>Duration</span>
+        <span>Utterances</span>
+        <span>Size</span>
+        <span></span>
+      </div>
+      <div id="sessionList" class="session-table"></div>
+      <div id="sessionEmpty" class="session-empty" style="display:none">
+        <strong>No sessions yet</strong>
+        Start Listen mode to record your first session.
+      </div>
     </div>
   </div>
 
@@ -491,6 +940,26 @@
     </div>
   </div>
 
+  <!-- ── Hotkeys (Phase 3) ────────────────────────────── -->
+  <div class="section" id="hotkeysSection">
+    <div class="section-header">
+      <span class="section-title">Hotkeys</span>
+    </div>
+    <div class="section-body">
+      <div id="hotkeysBanner" class="hotkey-banner"></div>
+
+      <div id="hotkeysList">
+        <!-- Rows rendered dynamically from config -->
+      </div>
+
+      <div class="hotkey-actions">
+        <button type="button" class="btn-save"  id="hotkeysSaveBtn"  disabled>Save</button>
+        <button type="button" class="btn-reset" id="hotkeysResetBtn">Reset all to defaults</button>
+        <span id="hotkeysSaveStatus" class="hint" style="margin-left:auto; align-self:center;"></span>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /layout -->
 
 <!-- Save bar -->
@@ -502,6 +971,41 @@
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
+
+<!-- ── Session detail modal (Phase 5 / Plan 05-04) ─────────────── -->
+<div id="sessionModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="sessionModalTitle">
+  <div class="modal-panel" id="sessionModalPanel">
+    <div class="modal-header">
+      <span class="modal-title" id="sessionModalTitle">Session</span>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary"   id="sessionExportMd"    aria-label="Export session as Markdown">Export Markdown</button>
+        <button type="button" class="btn btn-secondary" id="sessionExportJsonl" aria-label="Export session as JSONL">Export JSONL</button>
+        <button type="button" class="modal-close"       id="sessionModalClose"  aria-label="Close session view">&#x2715;</button>
+      </div>
+    </div>
+    <div class="modal-body" id="sessionModalBody">
+      <div class="transcript-stream" id="sessionTranscript"></div>
+      <div class="retro-card-actions" id="retroRunWrap" style="margin-top:16px; justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="retroRunBtn">Run Retrospective</button>
+      </div>
+      <div class="retro-card" id="retroCard" style="display:none">
+        <div class="retro-card-header">
+          <div class="retro-card-meta">
+            <span aria-hidden="true">&#x25C8;</span>
+            <strong style="color:var(--text);font-size:11px">Retrospective</strong>
+            <span class="bubble-badge" id="retroBadge"></span>
+            <span id="retroTime"></span>
+          </div>
+          <div class="retro-card-actions">
+            <button type="button" class="btn-retro-copy"  id="retroCopyBtn">Copy</button>
+            <button type="button" class="btn-retro-rerun" id="retroRerunBtn">Re-run</button>
+          </div>
+        </div>
+        <div class="retro-card-body" id="retroBody" aria-live="polite"></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script>
@@ -1207,6 +1711,882 @@ socket.on('hud_opacity_saved', (v) => {
 // Boot
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 loadConfig();
+</script>
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<!-- Hotkeys module (Phase 3) — initial GET + state facade                    -->
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<script>
+(function hotkeysModule() {
+  const SLOTS = [
+    ['hud_toggle',        "HUD toggle (show/hide)",         "Also doubles as 'Hide for share' during screen sharing."],
+    ['listen_toggle',     "Listen on/off",                   ""],
+    ['screenshot',        "Capture screenshot under cursor", ""],
+    ['prev_question',     "Previous question",               ""],
+    ['next_question',     "Next question",                   ""],
+    ['scroll_answer_up',  "Scroll answer up",                "New in v1.2 — scrolls the current answer bubble."],
+    ['scroll_answer_down',"Scroll answer down",              "New in v1.2 — scrolls the current answer bubble."],
+  ];
+
+  const SLOT_LABEL = Object.fromEntries(SLOTS.map(([id, label]) => [id, label]));
+
+  let currentHotkeys = {};  // editable working copy
+  let savedHotkeys   = {};  // last-persisted snapshot (for Reset-to-saved semantics)
+  let recordingSlot  = null;  // id of the slot currently in record mode, or null
+  let osRejections   = {};  // slot → { accel, reason } from hotkey_register_failed events
+
+  // Exposed for the interactive script to fill in:
+  window.__hotkeysModule = { SLOTS, SLOT_LABEL,
+    get currentHotkeys() { return currentHotkeys; },
+    set currentHotkeys(v) { currentHotkeys = v; },
+    get savedHotkeys() { return savedHotkeys; },
+    set savedHotkeys(v) { savedHotkeys = v; },
+    get recordingSlot() { return recordingSlot; },
+    set recordingSlot(v) { recordingSlot = v; },
+    get osRejections() { return osRejections; },
+    set osRejections(v) { osRejections = v; },
+  };
+
+  // Convert an Electron accelerator ("CommandOrControl+Shift+H") into a human string
+  // ("Ctrl+Shift+H" on Windows/Linux, "Cmd+Shift+H" on macOS) for display.
+  function prettifyAccel(accel) {
+    if (!accel) return '';
+    const isMac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+    const cmdOrCtrl = isMac ? 'Cmd' : 'Ctrl';
+    return accel
+      .replace(/CommandOrControl/g, cmdOrCtrl)
+      .replace(/CmdOrCtrl/g, cmdOrCtrl)
+      .replace(/Command/g, 'Cmd')
+      .replace(/Control/g, 'Ctrl');
+  }
+
+  // Update the HUD Appearance banner's inline quick-reference glyphs from the
+  // live config — keeps that banner in sync with user rebinds instead of always
+  // showing the factory defaults.
+  function updateBannerShortcuts(fullMap) {
+    if (!fullMap) return;
+    const hudEl  = document.getElementById('hotkey-hud');
+    const talkEl = document.getElementById('hotkey-talk');
+    if (hudEl  && fullMap.hud_toggle)    hudEl.textContent  = prettifyAccel(fullMap.hud_toggle);
+    if (talkEl && fullMap.listen_toggle) talkEl.textContent = prettifyAccel(fullMap.listen_toggle);
+  }
+  // Exposed so the interactive script can re-run it after save / on hotkeys_updated.
+  window.__hotkeysUpdateBanner = updateBannerShortcuts;
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    try {
+      const res  = await fetch('/api/config/hotkeys');
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Failed to load hotkeys');
+      currentHotkeys = { ...data.hotkeys };
+      savedHotkeys   = JSON.parse(JSON.stringify(data.hotkeys));
+      if (data.warning) {
+        const banner = document.getElementById('hotkeysBanner');
+        banner.textContent = data.warning;
+        banner.classList.add('show');
+      }
+      updateBannerShortcuts(data.hotkeys);
+      if (typeof window.__hotkeysRender === 'function') window.__hotkeysRender();
+    } catch (err) {
+      const banner = document.getElementById('hotkeysBanner');
+      banner.textContent = 'Could not load hotkeys: ' + err.message;
+      banner.classList.add('show');
+    }
+  });
+})();
+</script>
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<!-- Hotkeys interactive (Phase 3) — capture widget, validation, save         -->
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<script>
+(function hotkeysInteractive() {
+  const M = window.__hotkeysModule;
+  if (!M) return console.error('hotkeysModule not initialised');
+
+  // ── 1. Accelerator formatting + parsing ──────────────────────────
+  // Convert a KeyboardEvent into an Electron accelerator string.
+  // Returns null if no non-modifier key pressed yet.
+  //
+  // Layout-independence: letters/digits/F-keys use `ev.code` (the physical key)
+  // so captured bindings are layout-agnostic — pressing the "H" key on a Cyrillic
+  // layout still saves `CommandOrControl+Shift+H`, not `CommandOrControl+Shift+Р`.
+  // Arrow and named keys use `ev.key` because those are already layout-independent.
+  function eventToAccelerator(ev) {
+    const mods = [];
+    // Use CommandOrControl to match backend defaults (cross-platform).
+    if (ev.ctrlKey || ev.metaKey) mods.push('CommandOrControl');
+    if (ev.shiftKey)              mods.push('Shift');
+    if (ev.altKey)                mods.push('Alt');
+
+    const key  = ev.key;
+    const code = ev.code;
+    if (['Control','Shift','Alt','Meta','OS','ContextMenu'].includes(key)) return null;
+
+    let token = null;
+    if (key === 'ArrowLeft')       token = 'Left';
+    else if (key === 'ArrowRight') token = 'Right';
+    else if (key === 'ArrowUp')    token = 'Up';
+    else if (key === 'ArrowDown')  token = 'Down';
+    else if (code === 'Space')     token = 'Space';
+    else if (/^Key([A-Z])$/.test(code))   token = code.slice(3);    // 'KeyH' → 'H' (layout-independent)
+    else if (/^Digit([0-9])$/.test(code)) token = code.slice(5);    // 'Digit1' → '1'
+    else if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) token = code;   // 'F1'..'F24'
+    else if (['Enter','Tab','Escape','Backspace','Delete','Insert','Home','End','PageUp','PageDown'].includes(key)) {
+      token = (key === 'Return' ? 'Enter' : key);
+    }
+    else return null;  // unsupported key — reject silently, capture continues
+
+    return [...mods, token].join('+');
+  }
+
+  // ── 2. Render the seven rows ──────────────────────────────────────
+  function render() {
+    const list = document.getElementById('hotkeysList');
+    list.innerHTML = '';
+    for (const [slotId, label, hint] of M.SLOTS) {
+      const row = document.createElement('div');
+      row.className = 'hotkey-row';
+      row.dataset.slot = slotId;
+
+      const left = document.createElement('div');
+      const labelEl = document.createElement('div');
+      labelEl.className = 'hotkey-row-label';
+      labelEl.textContent = label;
+      left.appendChild(labelEl);
+      if (hint) {
+        const hintEl = document.createElement('span');
+        hintEl.className = 'hotkey-row-hint';
+        hintEl.textContent = hint;
+        left.appendChild(hintEl);
+      }
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hotkey-capture';
+      btn.dataset.slot = slotId;
+      btn.textContent = M.currentHotkeys[slotId] || '(none)';
+      btn.addEventListener('click', () => beginRecord(slotId, btn));
+
+      row.appendChild(left);
+      row.appendChild(btn);
+      list.appendChild(row);
+    }
+    revalidate();
+  }
+  window.__hotkeysRender = render;  // initial-load IIFE calls this
+
+  // ── 3. Capture mode ──────────────────────────────────────────────
+  // Tell the backend to pause/resume globalShortcut during capture so the HUD
+  // doesn't fire on the combo we're trying to record (Gap A closure).
+  function emitCapturePause(paused) {
+    const s = window.__settingsSocket;
+    if (s && s.connected) s.emit('hotkeys_capture_changed', { paused: !!paused });
+  }
+
+  function beginRecord(slotId, btn) {
+    if (M.recordingSlot) cancelRecord();  // only one at a time
+    M.recordingSlot = slotId;
+    btn.classList.add('recording');
+    btn.textContent = 'Press new combo…';
+    document.addEventListener('keydown', onCaptureKeydown, true);
+    emitCapturePause(true);
+  }
+
+  function cancelRecord() {
+    if (!M.recordingSlot) return;
+    const btn = document.querySelector(`.hotkey-capture[data-slot="${M.recordingSlot}"]`);
+    if (btn) {
+      btn.classList.remove('recording');
+      btn.textContent = M.currentHotkeys[M.recordingSlot] || '(none)';
+    }
+    M.recordingSlot = null;
+    document.removeEventListener('keydown', onCaptureKeydown, true);
+    emitCapturePause(false);
+  }
+
+  function onCaptureKeydown(ev) {
+    if (!M.recordingSlot) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (ev.key === 'Escape')    { cancelRecord(); return; }
+    if (ev.key === 'Backspace') {
+      M.currentHotkeys[M.recordingSlot] = '';
+      const btn = document.querySelector(`.hotkey-capture[data-slot="${M.recordingSlot}"]`);
+      if (btn) btn.textContent = '(none)';
+      cancelRecord();
+      revalidate();
+      return;
+    }
+    const accel = eventToAccelerator(ev);
+    if (!accel) return;  // modifier-only keydown; wait for the non-modifier
+    M.currentHotkeys[M.recordingSlot] = accel;
+    const btn = document.querySelector(`.hotkey-capture[data-slot="${M.recordingSlot}"]`);
+    if (btn) btn.textContent = accel;
+    cancelRecord();
+    revalidate();
+  }
+
+  // ── 4. Live conflict detection ───────────────────────────────────
+  function findConflicts() {
+    const seen = new Map();  // accel → slot
+    const conflicts = {};    // slot → collidingSlotLabel
+    for (const [slotId] of M.SLOTS) {
+      const accel = M.currentHotkeys[slotId];
+      if (!accel) continue;  // empty = disabled
+      if (seen.has(accel)) {
+        conflicts[slotId] = M.SLOT_LABEL[seen.get(accel)];
+      } else {
+        seen.set(accel, slotId);
+      }
+    }
+    return conflicts;
+  }
+
+  function revalidate() {
+    const conflicts = findConflicts();
+    // Clear existing row errors / warnings
+    document.querySelectorAll('.hotkey-row-error, .hotkey-row-warning').forEach(el => el.remove());
+    document.querySelectorAll('.hotkey-capture').forEach(btn => btn.classList.remove('invalid'));
+
+    for (const [slotId] of M.SLOTS) {
+      const row = document.querySelector(`.hotkey-row[data-slot="${slotId}"]`);
+      if (!row) continue;
+
+      if (conflicts[slotId]) {
+        const err = document.createElement('div');
+        err.className = 'hotkey-row-error';
+        err.textContent = `Conflicts with ${conflicts[slotId]}`;
+        row.appendChild(err);
+        row.querySelector('.hotkey-capture').classList.add('invalid');
+      }
+      // OS-rejection warning (from hotkey_register_failed events — persisted for this session)
+      const rej = M.osRejections[slotId];
+      if (rej) {
+        const w = document.createElement('div');
+        w.className = 'hotkey-row-warning';
+        w.textContent = `${rej.accel} rejected by the OS — kept previous binding`;
+        row.appendChild(w);
+      }
+    }
+
+    const saveBtn = document.getElementById('hotkeysSaveBtn');
+    saveBtn.disabled = Object.keys(conflicts).length > 0;
+  }
+
+  // ── 5. Save ──────────────────────────────────────────────────────
+  async function save() {
+    const status = document.getElementById('hotkeysSaveStatus');
+    status.textContent = 'Saving…';
+    try {
+      const res = await fetch('/api/config/hotkeys', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hotkeys: M.currentHotkeys }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        status.textContent = '';
+        if (Array.isArray(data.errors)) {
+          // Show server-side errors per row (e.g., duplicate collisions we somehow let through)
+          for (const e of data.errors) {
+            const row = document.querySelector(`.hotkey-row[data-slot="${e.slot}"]`);
+            if (!row) continue;
+            const errEl = document.createElement('div');
+            errEl.className = 'hotkey-row-error';
+            errEl.textContent = e.collidesWith
+              ? `Conflicts with ${M.SLOT_LABEL[e.collidesWith] || e.collidesWith}`
+              : `Invalid: ${e.reason || 'rejected'}`;
+            row.appendChild(errEl);
+          }
+        } else {
+          alert('Failed to save: ' + (data.error || 'unknown error'));
+        }
+        return;
+      }
+      M.savedHotkeys = JSON.parse(JSON.stringify(data.hotkeys));
+      M.currentHotkeys = { ...data.hotkeys };
+      // Clear banner — user just wrote a fresh file.
+      document.getElementById('hotkeysBanner').classList.remove('show');
+      // Refresh the HUD Appearance banner glyphs with the new bindings.
+      if (typeof window.__hotkeysUpdateBanner === 'function') window.__hotkeysUpdateBanner(data.hotkeys);
+      status.textContent = 'Saved ✓';
+      setTimeout(() => { status.textContent = ''; }, 2000);
+      render();
+    } catch (err) {
+      status.textContent = '';
+      alert('Save failed: ' + err.message);
+    }
+  }
+
+  // ── 6. Reset ──────────────────────────────────────────────────────
+  // Fills the form with factory defaults but does NOT persist until Save (D-15).
+  const DEFAULTS = {
+    hud_toggle:         'CommandOrControl+Shift+H',
+    listen_toggle:      'CommandOrControl+Shift+X',
+    screenshot:         'CommandOrControl+Shift+P',
+    prev_question:      'CommandOrControl+Left',
+    next_question:      'CommandOrControl+Right',
+    scroll_answer_up:   'CommandOrControl+Shift+Up',
+    scroll_answer_down: 'CommandOrControl+Shift+Down',
+  };
+  function resetAll() {
+    M.currentHotkeys = { ...DEFAULTS };
+    render();
+  }
+
+  // ── 7. Wire buttons + socket listener ────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('hotkeysSaveBtn').addEventListener('click', save);
+    document.getElementById('hotkeysResetBtn').addEventListener('click', resetAll);
+
+    // Listen for OS rejections from 03-03's Electron main relay.
+    // The settings page may already have a socket instance; if not, create one.
+    let socket = window.__settingsSocket;
+    if (!socket && window.io) {
+      socket = window.io('/data-updates', { transports: ['websocket'] });
+      window.__settingsSocket = socket;
+    }
+    if (socket) {
+      socket.on('hotkey_register_failed', (data) => {
+        if (!data || !data.slot) return;
+        M.osRejections[data.slot] = { accel: data.accel, reason: data.reason };
+        revalidate();
+      });
+      socket.on('hotkeys_updated', (data) => {
+        // Another process/tab changed hotkeys — refresh our view.
+        if (data && data.hotkeys) {
+          M.savedHotkeys = JSON.parse(JSON.stringify(data.hotkeys));
+          M.currentHotkeys = { ...data.hotkeys };
+          if (typeof window.__hotkeysUpdateBanner === 'function') window.__hotkeysUpdateBanner(data.hotkeys);
+          render();
+        }
+      });
+    }
+
+    // Safety: if the user closes the tab or navigates away mid-capture, tell
+    // the backend to resume globals. Main also has a 10s auto-resume fallback.
+    window.addEventListener('beforeunload', () => {
+      if (M.recordingSlot) emitCapturePause(false);
+    });
+  });
+})();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Profile (Phase 5)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const PROFILE_SOFT_LIMIT = 8000;
+
+const profileTextarea = document.getElementById('profileTextarea');
+const profileCounter  = document.getElementById('profileCounter');
+const profileBanner   = document.getElementById('profileWarnBanner');
+const profileSaveBtn  = document.getElementById('profileSaveBtn');
+const profileStatus   = document.getElementById('profileStatus');
+
+function updateProfileCounter() {
+  const len = profileTextarea.value.length;
+  profileCounter.textContent = `${len} / ${PROFILE_SOFT_LIMIT}`;
+  const over = len > PROFILE_SOFT_LIMIT;
+  profileCounter.classList.toggle('warn', over);
+  profileBanner.classList.toggle('show', over);
+}
+
+async function loadProfile() {
+  try {
+    const res = await fetch('/api/profile');
+    const data = await res.json();
+    if (data && data.success) {
+      profileTextarea.value = data.content || '';
+      updateProfileCounter();
+    }
+  } catch (err) {
+    console.error('Failed to load profile:', err);
+  }
+}
+
+async function saveProfile() {
+  profileSaveBtn.disabled = true;
+  profileStatus.className = 'profile-status';
+  profileStatus.textContent = 'Saving…';
+  try {
+    const res = await fetch('/api/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: profileTextarea.value }),
+    });
+    const data = await res.json();
+    if (data && data.success) {
+      profileStatus.className = 'profile-status ok';
+      profileStatus.textContent = 'Saved';
+      showToast('Profile saved.', 'ok');
+    } else {
+      const msg = (data && data.error) ? data.error : 'Save failed';
+      profileStatus.className = 'profile-status err';
+      profileStatus.textContent = msg;
+      showToast('Save failed — check the console.', 'err');
+    }
+  } catch (err) {
+    console.error('saveProfile error:', err);
+    profileStatus.className = 'profile-status err';
+    profileStatus.textContent = 'Save failed';
+    showToast('Save failed — check the console.', 'err');
+  } finally {
+    profileSaveBtn.disabled = false;
+    setTimeout(() => { profileStatus.textContent = ''; profileStatus.className = 'profile-status'; }, 4000);
+  }
+}
+
+profileTextarea.addEventListener('input', updateProfileCounter);
+profileSaveBtn.addEventListener('click', saveProfile);
+loadProfile();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Session History (Phase 5 / Plan 05-03)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function fmtSessionTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  // Human-readable local time + date for clarity
+  const day = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return `${day} · ${time}`;
+}
+
+function fmtDuration(seconds) {
+  if (seconds == null) return '—';
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.floor(seconds / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const remMin = mins % 60;
+  return `${hrs}h ${remMin}m`;
+}
+
+function fmtBytes(bytes) {
+  if (bytes == null) return '—';
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+let _sessionsCache = [];
+
+async function loadSessions() {
+  const listEl = document.getElementById('sessionList');
+  const emptyEl = document.getElementById('sessionEmpty');
+  if (!listEl) return;
+  try {
+    const res = await fetch('/api/sessions');
+    const data = await res.json();
+    if (!data || !data.success) throw new Error(data && data.error || 'Failed');
+    _sessionsCache = data.sessions || [];
+    renderSessions();
+  } catch (err) {
+    console.error('Failed to load sessions:', err);
+    listEl.innerHTML = '';
+    emptyEl.style.display = '';
+    emptyEl.innerHTML = '<strong>Could not load sessions</strong>Check the console.';
+  }
+}
+
+function renderSessions() {
+  const listEl = document.getElementById('sessionList');
+  const emptyEl = document.getElementById('sessionEmpty');
+  listEl.innerHTML = '';
+  if (_sessionsCache.length === 0) {
+    emptyEl.style.display = '';
+    emptyEl.innerHTML = '<strong>No sessions yet</strong>Start Listen mode to record your first session.';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  for (const s of _sessionsCache) {
+    const row = document.createElement('div');
+    row.className = 'session-row' + (s.status === 'active' ? ' active' : '');
+    row.dataset.sessionId = s.id;
+    row.innerHTML =
+      `<span class="session-col-time">${esc(fmtSessionTime(s.start_ts))}</span>` +
+      `<span class="session-col-dur">${esc(fmtDuration(s.duration_s))}</span>` +
+      `<span class="session-col-count">${esc(s.utterance_count == null ? '—' : String(s.utterance_count))}</span>` +
+      `<span class="session-col-size">${esc(fmtBytes(s.size_bytes))}</span>` +
+      `<button class="session-col-trash" type="button" aria-label="Delete session" data-action="trash">🗑</button>`;
+    listEl.appendChild(row);
+  }
+}
+
+function showDeleteConfirm(row, sessionId) {
+  // Replace row content with inline confirm strip (UI-SPEC §5-A-delete)
+  const original = row.innerHTML;
+  row.classList.add('confirming');
+  row.innerHTML =
+    `<span class="session-confirm-text">Delete this session? This cannot be undone.</span>` +
+    `<div class="session-confirm-actions">` +
+      `<button type="button" class="btn btn-ghost" data-action="cancel">Cancel</button>` +
+      `<button type="button" class="btn btn-fail"  data-action="confirm">Delete Session</button>` +
+    `</div>`;
+  row.querySelector('[data-action="cancel"]').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    row.classList.remove('confirming');
+    row.innerHTML = original;
+  });
+  row.querySelector('[data-action="confirm"]').addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    try {
+      const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data && data.success) {
+        showToast('Session deleted.', 'ok');
+        loadSessions();
+      } else {
+        showToast(data && data.error || 'Delete failed', 'err');
+        row.classList.remove('confirming');
+        row.innerHTML = original;
+      }
+    } catch (err) {
+      console.error('Delete failed:', err);
+      showToast('Delete failed — check the console.', 'err');
+      row.classList.remove('confirming');
+      row.innerHTML = original;
+    }
+  });
+}
+
+document.getElementById('sessionList').addEventListener('click', (ev) => {
+  const row = ev.target.closest('.session-row');
+  if (!row || row.classList.contains('confirming')) return;
+  const sessionId = row.dataset.sessionId;
+  if (!sessionId) return;
+  // Trash icon click → show confirm; otherwise → row-open hook.
+  if (ev.target.dataset.action === 'trash' || ev.target.closest('[data-action="trash"]')) {
+    ev.stopPropagation();
+    showDeleteConfirm(row, sessionId);
+    return;
+  }
+  // Plan 05-04 will replace this with openSessionModal(sessionId).
+  // For now, Plan 05-03 ships only the row UI; clicking does nothing visible yet.
+  if (typeof window.openSessionModal === 'function') {
+    window.openSessionModal(sessionId);
+  } else {
+    console.log('[sessions] row click — modal not yet wired (Plan 05-04):', sessionId);
+  }
+});
+
+// Auto-refresh on Listen state change (an active session may finish or start)
+socket.on('listen_state_changed', () => { setTimeout(loadSessions, 600); });
+
+loadSessions();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Session detail modal (Phase 5 / Plan 05-04)
+// Wires: row click → openSessionModal → fetch /api/sessions/:id → renderTranscript
+// HUD-style bubbles (them left / me right / ai full-width). Esc / X / click-outside
+// all close the modal. Export buttons trigger browser downloads via window.location.
+// Plan 05-05 forward hooks: window.renderRetrospectiveCard / window.resetRetrospectiveCard.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const sessionModal          = document.getElementById('sessionModal');
+const sessionModalPanel     = document.getElementById('sessionModalPanel');
+const sessionModalTitle     = document.getElementById('sessionModalTitle');
+const sessionTranscript     = document.getElementById('sessionTranscript');
+const sessionExportMdBtn    = document.getElementById('sessionExportMd');
+const sessionExportJsonlBtn = document.getElementById('sessionExportJsonl');
+const sessionModalCloseBtn  = document.getElementById('sessionModalClose');
+
+let _currentSessionId = null;
+// Plan 05-05 will read this to render the retrospective card.
+window._currentSessionData = null;
+
+function basenameFromAbsPath(p) {
+  if (!p) return '';
+  // Handles both Windows and POSIX absolute paths.
+  const m = String(p).match(/[^\\/]+$/);
+  return m ? m[0] : String(p);
+}
+
+function renderTranscript(eventsArr) {
+  sessionTranscript.innerHTML = '';
+  if (!eventsArr || eventsArr.length === 0) {
+    sessionTranscript.innerHTML = '<div class="session-empty"><strong>This session has no transcript entries.</strong></div>';
+    return;
+  }
+  for (const ev of eventsArr) {
+    if (ev.type === 'utterance' && (ev.speaker === 'them' || ev.speaker === 'me')) {
+      const div = document.createElement('div');
+      div.className = `bubble ${ev.speaker}`;
+      div.textContent = ev.text || '';
+      sessionTranscript.appendChild(div);
+    } else if (ev.type === 'ai_answer') {
+      const wrap = document.createElement('div');
+      wrap.className = 'bubble ai';
+      const badge = document.createElement('div');
+      badge.className = 'bubble-badge';
+      badge.textContent = `${ev.provider || 'unknown'} · ${ev.prompt_type || 'interview-answer'}`;
+      wrap.appendChild(badge);
+      const txt = document.createElement('div');
+      txt.textContent = ev.text || '';
+      wrap.appendChild(txt);
+      sessionTranscript.appendChild(wrap);
+    } else if (ev.type === 'screenshot_qa') {
+      const card = document.createElement('div');
+      card.className = 'screenshot-entry';
+
+      const ocrBubble = document.createElement('div');
+      ocrBubble.className = 'bubble them';
+      ocrBubble.textContent = ev.ocr_text || '(no OCR text)';
+      card.appendChild(ocrBubble);
+
+      if (ev.screenshot_path) {
+        const base = basenameFromAbsPath(ev.screenshot_path);
+        if (base) {
+          const img = document.createElement('img');
+          img.className = 'screenshot-thumb';
+          img.alt = 'Screenshot';
+          img.src = `/api/sessions/screenshots/${encodeURIComponent(base)}`;
+          img.addEventListener('error', () => { img.style.display = 'none'; });
+          // Click thumbnail → open full image in new tab
+          img.addEventListener('click', () => window.open(img.src, '_blank'));
+          card.appendChild(img);
+        }
+        const link = document.createElement('div');
+        link.className = 'screenshot-link';
+        link.textContent = ev.screenshot_path;
+        card.appendChild(link);
+      }
+
+      const aiWrap = document.createElement('div');
+      aiWrap.className = 'bubble ai';
+      const badge = document.createElement('div');
+      badge.className = 'bubble-badge';
+      badge.textContent = `${ev.provider || 'unknown'} · ${ev.prompt_type || 'system'}`;
+      aiWrap.appendChild(badge);
+      const txt = document.createElement('div');
+      txt.textContent = ev.ai_answer || '';
+      aiWrap.appendChild(txt);
+      card.appendChild(aiWrap);
+
+      sessionTranscript.appendChild(card);
+    }
+  }
+}
+
+async function openSessionModal(sessionId) {
+  _currentSessionId = sessionId;
+  sessionModalTitle.textContent = `Session — ${sessionId}`;
+  sessionTranscript.innerHTML = '<div class="session-empty">Loading…</div>';
+  sessionModal.classList.add('open');
+  sessionModalCloseBtn.focus();
+
+  try {
+    const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
+    const data = await res.json();
+    if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
+    window._currentSessionData = data;
+    if (data.start_ts) sessionModalTitle.textContent = `Session — ${data.start_ts}`;
+    renderTranscript(data.events || []);
+    // Plan 05-05 hook: render retrospective card if it exists.
+    if (typeof window.renderRetrospectiveCard === 'function') {
+      window.renderRetrospectiveCard(data.retrospective);
+    }
+  } catch (err) {
+    console.error('Could not load session transcript:', err);
+    sessionTranscript.innerHTML = '<div class="session-empty" style="color:var(--red)">Could not load session transcript. Try again.</div>';
+  }
+}
+
+function closeSessionModal() {
+  sessionModal.classList.remove('open');
+  _currentSessionId = null;
+  window._currentSessionData = null;
+  sessionTranscript.innerHTML = '';
+  // Plan 05-05 hook: reset retrospective card if it set one up.
+  if (typeof window.resetRetrospectiveCard === 'function') {
+    window.resetRetrospectiveCard();
+  }
+}
+
+// Expose for the Plan 05-03 row click handler (forward hook).
+window.openSessionModal = openSessionModal;
+
+sessionModalCloseBtn.addEventListener('click', closeSessionModal);
+sessionModal.addEventListener('click', (ev) => {
+  // Click on overlay background (not the panel) → close
+  if (ev.target === sessionModal) closeSessionModal();
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && sessionModal.classList.contains('open')) closeSessionModal();
+});
+
+sessionExportMdBtn.addEventListener('click', () => {
+  if (!_currentSessionId) return;
+  window.location.href = `/api/sessions/${encodeURIComponent(_currentSessionId)}/export.md`;
+});
+sessionExportJsonlBtn.addEventListener('click', () => {
+  if (!_currentSessionId) return;
+  window.location.href = `/api/sessions/${encodeURIComponent(_currentSessionId)}/export.jsonl`;
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Retrospective (Phase 5 / Plan 05-05)
+// Run / Re-run button triggers POST /api/sessions/:id/retrospective; the
+// streaming response arrives via Socket.IO retrospective_* events filtered by
+// activeRetroRequestId. Pinned card at modal bottom shows provider, time,
+// Copy + Re-run actions. window.renderRetrospectiveCard / resetRetrospectiveCard
+// satisfy the Plan 05-04 forward hooks.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const retroRunBtn   = document.getElementById('retroRunBtn');
+const retroRerunBtn = document.getElementById('retroRerunBtn');
+const retroCopyBtn  = document.getElementById('retroCopyBtn');
+const retroCard     = document.getElementById('retroCard');
+const retroBody     = document.getElementById('retroBody');
+const retroBadge    = document.getElementById('retroBadge');
+const retroTime     = document.getElementById('retroTime');
+const retroRunWrap  = document.getElementById('retroRunWrap');
+
+let activeRetroRequestId = null;
+let retroAccumulator     = '';
+
+function fmtRetroTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return `critiqued ${d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+function showRetroGenerating() {
+  retroCard.style.display = '';
+  retroBadge.textContent = '';
+  retroTime.textContent = '';
+  retroBody.innerHTML =
+    `<div class="retro-generating">Generating retrospective…<span class="retro-dots"><span></span><span></span><span></span></span></div>`;
+  // Auto-scroll to card on stream start
+  setTimeout(() => retroCard.scrollIntoView({ behavior: 'smooth', block: 'end' }), 60);
+}
+
+function showRetroFinal(text, provider, ts) {
+  retroCard.style.display = '';
+  retroBadge.textContent = provider || 'unknown';
+  retroTime.textContent = fmtRetroTime(ts);
+  retroBody.classList.remove('retro-error');
+  retroBody.textContent = text || '';
+  retroRerunBtn.disabled = false;
+  retroRunBtn.disabled = false;
+  retroRunWrap.style.display = 'none';      // hide the original Run button after first success
+}
+
+function showRetroStreaming(text) {
+  retroBody.classList.remove('retro-error');
+  // Build text + blinking cursor (textContent-only on user data, T-05-05-03)
+  retroBody.innerHTML = '';
+  const span = document.createElement('span');
+  span.textContent = text;
+  retroBody.appendChild(span);
+  const cursor = document.createElement('span');
+  cursor.className = 'stream-cursor';
+  cursor.textContent = '|';
+  retroBody.appendChild(cursor);
+}
+
+function showRetroError(msg) {
+  retroCard.style.display = '';
+  retroBody.classList.add('retro-error');
+  retroBody.textContent = `Retrospective failed: ${msg || 'unknown error'}. Try again.`;
+  retroRerunBtn.disabled = false;
+  retroRunBtn.disabled = false;
+}
+
+window.renderRetrospectiveCard = function (retro) {
+  // Called from openSessionModal after detail fetch. Render existing latest retro.
+  if (!retro) {
+    retroCard.style.display = 'none';
+    retroRunWrap.style.display = '';
+    return;
+  }
+  showRetroFinal(retro.text || '', retro.provider || 'unknown', retro.ts || null);
+};
+
+window.resetRetrospectiveCard = function () {
+  activeRetroRequestId = null;
+  retroAccumulator = '';
+  retroCard.style.display = 'none';
+  retroRunWrap.style.display = '';
+  retroRunBtn.disabled = false;
+  retroRerunBtn.disabled = false;
+  retroBody.textContent = '';
+  retroBody.classList.remove('retro-error');
+  retroCopyBtn.classList.remove('copied', 'failed');
+  retroCopyBtn.textContent = 'Copy';
+};
+
+async function runRetrospective() {
+  const sid = window._currentSessionData && window._currentSessionData.id;
+  if (!sid) return;
+  retroRunBtn.disabled = true;
+  retroRerunBtn.disabled = true;
+  retroAccumulator = '';
+  showRetroGenerating();
+  try {
+    const res = await fetch(`/api/sessions/${encodeURIComponent(sid)}/retrospective`, { method: 'POST' });
+    const data = await res.json();
+    if (!data || !data.success) throw new Error((data && data.error) || 'Failed');
+    activeRetroRequestId = data.requestId;
+    // Tokens flow via Socket.IO listeners below.
+  } catch (err) {
+    console.error('runRetrospective failed:', err);
+    showRetroError(err.message || 'Failed to start');
+  }
+}
+
+retroRunBtn.addEventListener('click', runRetrospective);
+retroRerunBtn.addEventListener('click', runRetrospective);
+
+retroCopyBtn.addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(retroBody.textContent || '');
+    retroCopyBtn.classList.add('copied');
+    retroCopyBtn.textContent = 'Copied!';
+    setTimeout(() => {
+      retroCopyBtn.classList.remove('copied');
+      retroCopyBtn.textContent = 'Copy';
+    }, 2000);
+  } catch (err) {
+    console.error('Clipboard write failed:', err);
+    retroCopyBtn.classList.add('failed');
+    retroCopyBtn.textContent = 'Copy failed';
+    setTimeout(() => {
+      retroCopyBtn.classList.remove('failed');
+      retroCopyBtn.textContent = 'Copy';
+    }, 2000);
+  }
+});
+
+socket.on('retrospective_started', ({ sessionId, requestId }) => {
+  if (requestId !== activeRetroRequestId) return;
+  // UI already in generating state from runRetrospective.
+});
+
+socket.on('retrospective_token', ({ token, requestId }) => {
+  if (requestId !== activeRetroRequestId) return;
+  retroAccumulator += token;
+  showRetroStreaming(retroAccumulator);
+});
+
+socket.on('retrospective_complete', ({ requestId, response, provider }) => {
+  if (requestId !== activeRetroRequestId) return;
+  activeRetroRequestId = null;
+  const ts = new Date().toISOString();
+  showRetroFinal(response || retroAccumulator, provider, ts);
+  retroAccumulator = '';
+});
+
+socket.on('retrospective_error', ({ requestId, error }) => {
+  if (requestId !== activeRetroRequestId) return;
+  activeRetroRequestId = null;
+  showRetroError(error);
+  retroAccumulator = '';
+});
 </script>
 </body>
 </html>

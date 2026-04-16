@@ -102,8 +102,17 @@ async def lifespan(app: FastAPI):
     log_writer.start()
 
     try:
-        transcriber = Transcriber()
-        logger.info("Transcriber initialized")
+        # POLISH-03 dial 3: per-channel STT model override.
+        # Them-channel (interviewer loopback) may use a heavier model (e.g. distil-large-v3)
+        # while the me-channel stays on the lighter global default. Env override is the
+        # minimal change — no UI surface, no config migration. Unset → falls back to WHISPER_MODEL.
+        them_model = os.environ.get('STT_MODEL_THEM') or None
+        if them_model:
+            transcriber = Transcriber(model_size=them_model)
+            logger.info(f"Transcriber initialized (them-channel override: model={them_model})")
+        else:
+            transcriber = Transcriber()
+            logger.info("Transcriber initialized (them-channel: default model)")
         log_writer.log('transcriber_initialized', model=transcriber.model_size, use_api=transcriber.use_api)
 
         # MLX is protected by an internal lock in transcriber.py — one worker

@@ -14,6 +14,8 @@ import time
 import numpy as np
 import sounddevice as sd
 from concurrent.futures import ThreadPoolExecutor
+from collections import deque
+from typing import Optional
 
 try:
     import soundcard as sc
@@ -73,6 +75,23 @@ class AlwaysOnListener:
         self._silence_frames_threshold = int(ALWAYS_ON_SILENCE_THRESHOLD / _BLOCK_DURATION)
         self._min_speech_samples = int(ALWAYS_ON_MIN_SPEECH_DURATION * SAMPLE_RATE)
         self._max_speech_samples = int(ALWAYS_ON_MAX_UTTERANCE_DURATION * SAMPLE_RATE)
+
+        # POLISH-03 dial 1: pre-roll ring buffer. Keep the last N silent chunks so
+        # that on silence→speech transition we can prepend them into _speech_buffer,
+        # capturing the 100-500ms of audio that lives past Silero's RNN latch.
+        # Default 400ms per RESEARCH §Assumption A3; tunable via update_config('pre_roll_ms').
+        self._pre_roll_ms = 400
+        self._pre_roll_frames = max(1, int(self._pre_roll_ms / (_BLOCK_DURATION * 1000)))
+        self._silence_ring: deque = deque(maxlen=self._pre_roll_frames)
+
+        # POLISH-03 dial 4: max-utterance audio carry-over.
+        # When a force-flush fires (_speech_samples >= _max_speech_samples), preserve
+        # the last 500ms of audio; on the NEXT silence→speech transition, prepend it
+        # into _speech_buffer so faster-whisper sees continuous context instead of a
+        # cold start at the chunk boundary. One-use: cleared after consumption.
+        self._overlap_ms = 500
+        self._overlap_samples = int(self._overlap_ms / 1000 * SAMPLE_RATE)
+        self._overlap_carry: Optional[np.ndarray] = None
 
         # Metrics
         self.metrics = VADMetrics()
@@ -288,6 +307,14 @@ class AlwaysOnListener:
             self._max_speech_samples = int(float(config['max_utterance_duration']) * SAMPLE_RATE)
         if 'min_word_count' in config:
             self._min_word_count = int(config['min_word_count'])
+        if 'pre_roll_ms' in config:
+            self._pre_roll_ms = int(config['pre_roll_ms'])
+            self._pre_roll_frames = max(1, int(self._pre_roll_ms / (_BLOCK_DURATION * 1000)))
+            # Rebuild deque with new maxlen; any existing pre-roll is discarded — acceptable on config change.
+            self._silence_ring = deque(maxlen=self._pre_roll_frames)
+        if 'overlap_ms' in config:
+            self._overlap_ms = int(config['overlap_ms'])
+            self._overlap_samples = int(self._overlap_ms / 1000 * SAMPLE_RATE)
         logger.info(f"VAD config updated: {config}")
         log_writer.log('vad_config_applied', config=config)
 
@@ -326,6 +353,22 @@ class AlwaysOnListener:
             log_writer.log('vad_chunk', **record)
 
         if is_speech:
+            if self._state == 'silence':
+                # POLISH-03 dial 1: silence→speech transition — flush the ring buffer
+                # INTO the speech buffer first so we recover audio that lived behind
+                # Silero's RNN latch.
+                for silent_chunk, silent_prob in self._silence_ring:
+                    self._speech_buffer.append(silent_chunk)
+                    self._probability_buffer.append(silent_prob)
+                    self._speech_samples += len(silent_chunk)
+                # POLISH-03 dial 4: consume overlap carry from previous force-flush, if any.
+                if self._overlap_carry is not None:
+                    self._speech_buffer.append(self._overlap_carry)
+                    # Probabilities for carry are unknown — use the current chunk's prob as a safe placeholder.
+                    self._probability_buffer.append(prob)
+                    self._speech_samples += len(self._overlap_carry)
+                    self._overlap_carry = None
+                self._silence_ring.clear()
             self._state = 'speech'
             self._silent_frames = 0
             self._speech_buffer.append(chunk)
@@ -346,7 +389,10 @@ class AlwaysOnListener:
 
                 if self._silent_frames >= self._silence_frames_threshold:
                     self._flush_utterance()
-            # If already in silence state, do nothing
+            else:
+                # POLISH-03 dial 1: feed the silence ring during pure-silence state.
+                # Bounded deque drops oldest — cheap O(1).
+                self._silence_ring.append((chunk, prob))
 
     def _get_threshold(self) -> float:
         """Get the speech threshold for the current engine."""
@@ -376,6 +422,15 @@ class AlwaysOnListener:
         force_flushed = self._force_flushed
         chunk_count = len(probs)
         duration_s = self._speech_samples / SAMPLE_RATE
+
+        # POLISH-03 dial 4: preserve tail audio for next utterance's pre-roll
+        # (force-flush only). Captured BEFORE _reset_vad clears _speech_buffer.
+        if force_flushed and self._overlap_samples > 0:
+            audio_tail = audio[-self._overlap_samples:]
+            self._overlap_carry = audio_tail.copy()
+        else:
+            self._overlap_carry = None
+
         self._reset_vad()
 
         # Transcribe in thread pool (MLX is slow, don't block audio callback)

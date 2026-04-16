@@ -9,6 +9,7 @@ import DataHandler from './sockets/dataHandler.js';
 import imageProcessingService from './services/image-processing.service.js';
 import { CONFIG, getLocalIP } from './config/constants.js';
 import logger from './utils/logger.js';
+import sessionRecorder from './services/session-recorder.service.js';
 
 const log = logger('Server');
 
@@ -62,8 +63,14 @@ httpServer.listen(CONFIG.PORT, '0.0.0.0', () => {
 });
 
 // Graceful shutdown handlers
-const gracefulShutdown = () => {
+const gracefulShutdown = async () => {
   log.info('Shutting down...');
+  // Plan 05-01 / D-01 / Pitfall 1: drain session_end footer before exit.
+  try {
+    await sessionRecorder.shutdown('app_shutdown');
+  } catch (err) {
+    log.warn('Session recorder shutdown failed', { error: err.message });
+  }
   screenshotMonitorService.stop && screenshotMonitorService.stop();
 
   if (httpServer) {

@@ -6,6 +6,8 @@ import { fileURLToPath } from 'url';
 import imageRoutes from './routes/image.routes.js';
 import contextRoutes from './routes/context.routes.js';
 import configRoutes from './routes/config.routes.js';
+import sessionsRoutes from './routes/sessions.routes.js';
+import shutdownRoutes from './routes/shutdown.routes.js';
 import {
   errorHandler,
   notFoundHandler,
@@ -39,6 +41,8 @@ app.get('/settings', (req, res) => {
 app.use('/api', imageRoutes);
 app.use('/api', contextRoutes);
 app.use('/api', configRoutes);
+app.use('/api', sessionsRoutes);
+app.use('/api', shutdownRoutes);
 
 // Error handling middleware (must be last)
 app.use(notFoundHandler);

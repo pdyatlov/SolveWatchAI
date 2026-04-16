@@ -18,7 +18,7 @@ from engines import create_local_engine
 logger = logging.getLogger(__name__)
 
 
-VALID_LOCAL_MODELS = {"tiny", "base", "small", "medium", "large"}
+VALID_LOCAL_MODELS = {"tiny", "base", "small", "medium", "large", "distil-large-v3"}
 API_MODEL = "whisper-1"
 
 
