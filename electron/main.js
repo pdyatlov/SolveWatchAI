@@ -5,6 +5,10 @@ import { spawn as cpSpawn, execFile } from 'child_process';
 import http from 'http';
 import { fileURLToPath } from 'url';
 
+// Phase 9 / HOTK-08: dual-dispatcher mouse/wheel hook (singleton).
+// Keyboard slots stay on globalShortcut; mouse/wheel slots go through this module.
+import * as mouseHook from './mouse-hook.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -290,16 +294,16 @@ function createOverlayWindow() {
     overlayWindow = null;
     dragState = null;
     // 04-01: rebuild so the menu reflects "HUD is gone" state.
-    if (tray) tray.setContextMenu(buildTrayMenu());
+    scheduleTrayRebuild();
   });
 
   // 04-01: rebuild tray menu so the Show HUD / Hide HUD label tracks visibility.
   // tray may be null if createOverlayWindow is called before app.whenReady
-  // completes — guard accordingly.
-  overlayWindow.on('show',   () => { if (tray) tray.setContextMenu(buildTrayMenu()); });
+  // completes — guard handled inside scheduleTrayRebuild().
+  overlayWindow.on('show',   () => { scheduleTrayRebuild(); });
   overlayWindow.on('hide',   () => {
     flushSaveBounds();                                // POLISH-01 D-02 eager flush
-    if (tray) tray.setContextMenu(buildTrayMenu());
+    scheduleTrayRebuild();
   });
 
   ipcMain.on('hud-drag-start', (_e, screenX, screenY) => {
@@ -489,6 +493,18 @@ function registerGlobalHotkeys(map) {
   globalShortcut.unregisterAll();
   for (const slot of GLOBAL_HOTKEY_SLOTS) {
     const requested = map && typeof map[slot] === 'string' ? map[slot] : DEFAULT_HOTKEYS[slot];
+    // Phase 9 / HOTK-08: skip mouse/wheel-routed slots. globalShortcut cannot
+    // register Mouse*/Wheel* tokens; feeding them here produces a spurious
+    // "rejected by the OS" banner. mouse-hook.js owns dispatch for those.
+    if (acceleratorIsMouseRouted(requested)) {
+      activeGlobals[slot] = requested;
+      // Clear any stale rejection banner for this slot by relaying an
+      // empty-reason success signal — renderer treats null-reason as "OK".
+      if (overlayWindow && !overlayWindow.isDestroyed()) {
+        overlayWindow.webContents.send('hotkey-register-failed', { slot, accel: requested, reason: null });
+      }
+      continue;
+    }
     activeGlobals[slot] = registerSingleGlobal(slot, requested);
   }
 }
@@ -523,7 +539,23 @@ const ACCEL_MODIFIERS = new Set([
 const ACCEL_NAMED_KEYS = new Set([
   'Left','Right','Up','Down','Space','Tab','Backspace','Delete','Insert','Home','End','PageUp','PageDown','Escape','Enter','Return',
   'Plus','numadd','numsub','nummult','numdiv','numdec','Capslock','Numlock','Scrolllock','PrintScreen',
+  // Phase 9 / HOTK-08: mouse + wheel final-position tokens. Mirror of
+  // src/controllers/config.controller.js HOTKEY_NAMED_KEYS extension (09-PATTERNS S2).
+  // Mouse1 (left) + Mouse2 (right) deliberately absent per CONTEXT D-08.
+  'Mouse3','Mouse4','Mouse5','WheelUp','WheelDown',
 ]);
+// Phase 9 / HOTK-08: slots whose final token is a mouse/wheel accelerator are
+// dispatched by electron/mouse-hook.js (uiohook-napi), NOT by globalShortcut.
+// Feeding them to globalShortcut.register() always fails (electron does not
+// recognise these tokens) and surfaces as a spurious "rejected by the OS" banner.
+// Hoisted to module scope so both isValidAccelerator and registerGlobalHotkeys
+// can share the whitelist (dual-dispatcher routing per CONTEXT D-01).
+const MOUSE_FINAL_TOKENS = new Set(['Mouse3','Mouse4','Mouse5','WheelUp','WheelDown']);
+function acceleratorIsMouseRouted(accel) {
+  if (typeof accel !== 'string' || accel.length === 0) return false;
+  const parts = accel.split('+');
+  return MOUSE_FINAL_TOKENS.has(parts[parts.length - 1]);
+}
 function isValidAccelerator(accel) {
   if (accel === '') return true;  // empty = disabled
   if (typeof accel !== 'string' || accel.length > 64) return false;
@@ -532,7 +564,15 @@ function isValidAccelerator(accel) {
   const last = parts[parts.length - 1];
   const mods = parts.slice(0, -1);
   for (const m of mods) if (!ACCEL_MODIFIERS.has(m)) return false;
-  return /^[A-Za-z0-9]$/.test(last) || /^F([1-9]|1[0-9]|2[0-4])$/.test(last) || ACCEL_NAMED_KEYS.has(last);
+  const keyOk = /^[A-Za-z0-9]$/.test(last) || /^F([1-9]|1[0-9]|2[0-4])$/.test(last) || ACCEL_NAMED_KEYS.has(last);
+  if (!keyOk) return false;
+  // Must include at least one non-Shift modifier — bare or Shift-only
+  // accelerators hijack normal typing globally.
+  // Phase 9 / HOTK-08: mouse/wheel final tokens do NOT hijack typing, so
+  // skip the guard when the final token is one of them. Uses module-scope
+  // MOUSE_FINAL_TOKENS so registerGlobalHotkeys can share the same whitelist.
+  if (MOUSE_FINAL_TOKENS.has(last)) return true;
+  return mods.some((m) => m !== 'Shift');
 }
 
 function sanitizeHotkeyMap(input) {
@@ -572,6 +612,19 @@ function resumeFromCapture() {
 //   D-04 — left-click = toggleOverlay (wired in initTray, not here)
 //   D-16 — Restart disabled + tooltip when standalone (managedPids===null)
 //   D-17 — Open logs folder uses shell.openPath(process.cwd() + '/logs')
+
+// FIX-03: re-entrancy flag — prevents overlapping Menu.buildFromTemplate +
+// tray.setContextMenu sequences from racing when hotkeys-updated arrives
+// during a show/hide/closed transition.
+let _rebuildingTrayMenu = false;
+
+// FIX-03: click handlers in the returned template MUST remain late-binding —
+// they capture no mutable state at buildFromTemplate time. toggleOverlay,
+// onTrayRestart, onTrayStopAll are top-level function refs; each reads
+// overlayWindow / managedPids at call-time, not at menu-build time.
+// The only build-time-captured values are display-only (hudVisible label,
+// hudAccel accelerator hint) — staleness of those is cosmetic, not
+// correctness, and self-heals on the next rebuild.
 function buildTrayMenu() {
   const hudVisible = overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible();
   const hotkeys = loadHotkeysFromDisk();
@@ -609,6 +662,23 @@ function buildTrayMenu() {
     },
     { label: 'Stop all', click: onTrayStopAll },
   ]);
+}
+
+// FIX-03: single entry point for all tray-menu rebuild triggers.
+// - No-op if tray is null (pre-initTray).
+// - No-op if a rebuild is already running on this tick — the caller that
+//   started the rebuild will read the current state at Menu.buildFromTemplate
+//   time, which is at-most-one-tick stale. Any triggering events that fire
+//   during the rebuild are implicitly coalesced into that single pass.
+function scheduleTrayRebuild() {
+  if (!tray) return;
+  if (_rebuildingTrayMenu) return;
+  _rebuildingTrayMenu = true;
+  try {
+    tray.setContextMenu(buildTrayMenu());
+  } finally {
+    _rebuildingTrayMenu = false;
+  }
 }
 
 // ─── Shutdown-drain HTTP call (gap 05-06, closes GAP-05-01-shutdown-drain) ───
@@ -827,16 +897,37 @@ app.whenReady().then(() => {
     }
   }, 15_000);
 
+  // Phase 9 / HOTK-08: initialise the mouse-hook dispatcher. Handlers attach
+  // once and persist across pause/resume cycles (spike §2). init is a
+  // silent no-op on darwin (CONTEXT D-13 handled inside the module).
+  try {
+    mouseHook.init({ handlerForSlot });
+  } catch (err) {
+    console.warn('[mouse-hook] init threw:', err && err.message);
+  }
+
   // Listen for live-reload requests from the HUD renderer (relay of Socket.IO
   // hotkeys_updated — see 03-03 renderer + 03-01 backend emit).
   ipcMain.on('hotkeys-updated', (_ev, incomingMap) => {
     const safe = sanitizeHotkeyMap(incomingMap);
-    registerGlobalHotkeys(safe);
+    // Phase 9 / HOTK-08 (CONTEXT D-11): dual-dispatcher fan-out.
+    // Independent try/catch so a failure in one dispatcher doesn't prevent
+    // the other from re-registering.
+    try {
+      registerGlobalHotkeys(safe);
+    } catch (err) {
+      console.warn('[hotkey] keyboard re-register failed:', err && err.message);
+    }
+    try {
+      mouseHook.rebuildLookup(safe);
+    } catch (err) {
+      console.warn('[mouse-hook] lookup rebuild failed:', err && err.message);
+    }
     // 04-01 (D-02 integration): refresh accelerator hint after rebind.
     // The Phase 3 D-11 handler already runs registerGlobalHotkeys — this line
     // appends the tray-side effect so the menu "Hide HUD Ctrl+Shift+Q" label
     // updates to whatever hud_toggle was just saved.
-    if (tray) tray.setContextMenu(buildTrayMenu());
+    scheduleTrayRebuild();
     // If a pause is in-flight, supersede it — a save finished, bindings are fresh.
     if (captureResumeTimer) { clearTimeout(captureResumeTimer); captureResumeTimer = null; }
   });
@@ -848,11 +939,16 @@ app.whenReady().then(() => {
   ipcMain.on('hotkeys-capture-pause', (_ev, paused) => {
     if (paused) {
       globalShortcut.unregisterAll();
+      // Phase 9 / HOTK-08 (CONTEXT D-11 + spike L4):
+      // uiohook is NOT touched by globalShortcut.unregisterAll — must pause explicitly
+      // or a recorded Mouse4 in Settings also fires the current Mouse4 binding.
+      try { mouseHook.pause(); } catch (err) { console.warn('[mouse-hook] pause error:', err && err.message); }
       // Safety: auto-resume if the Settings page disappears without telling us.
       if (captureResumeTimer) clearTimeout(captureResumeTimer);
       captureResumeTimer = setTimeout(resumeFromCapture, CAPTURE_AUTO_RESUME_MS);
     } else {
       resumeFromCapture();
+      try { mouseHook.resume(); } catch (err) { console.warn('[mouse-hook] resume error:', err && err.message); }
     }
   });
 
@@ -872,6 +968,8 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
+  // Phase 9 / HOTK-08: mouse-hook shutdown alongside tray cleanup.
+  try { mouseHook.shutdown(); } catch {}
   // 04-01: Electron auto-cleans tray icons on process exit, but explicit destroy
   // avoids rare "dangling icon" reports on fast restarts per Electron #8597.
   if (tray) {

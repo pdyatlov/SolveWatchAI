@@ -54,6 +54,13 @@ export function registerRetrospectiveBroadcaster(fn) {
 }
 
 class SessionsController {
+  constructor() {
+    // FIX-02: per-session-id single-flight lock for streamRetrospective.
+    // Key = session id (validated jsonl basename). Value = requestId of the
+    // in-flight stream. Entry added on stream start, removed in finally so
+    // a crash can't deadlock future retrospectives on the same session.
+    this._retrospectiveLocks = new Map();
+  }
 
   // ── ID validation (security: path traversal mitigation T-05-03-01) ──
   _validateId(id) {
@@ -425,6 +432,16 @@ class SessionsController {
       return res.status(404).json({ success: false, error: 'Session not found' });
     }
 
+    // FIX-02: reject duplicate concurrent requests for the same session.
+    const existingRequestId = this._retrospectiveLocks.get(id);
+    if (existingRequestId) {
+      return res.status(409).json({
+        success: false,
+        error: 'Retrospective already in progress for this session',
+        requestId: existingRequestId,
+      });
+    }
+
     const requestId = `retro-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Build prompt: render the session as transcript, inject {PROFILE} + {TRANSCRIPT}.
@@ -438,9 +455,12 @@ class SessionsController {
         // readPromptFromFile fallback string — means prompts/retrospective-prompt.txt didn't load
         return res.status(500).json({ success: false, error: 'Retrospective prompt template not loaded' });
       }
+      // Function replacers: profile and transcript are user-controlled;
+      // string replacers interpret $&, $', $`, $$, $n as patterns.
+      const profileBlock = profile ? `## Candidate Profile\n${profile}\n` : '';
       systemPrompt = template
-        .replace('{PROFILE}', profile ? `## Candidate Profile\n${profile}\n` : '')
-        .replace('{TRANSCRIPT}', transcript);
+        .replace('{PROFILE}', () => profileBlock)
+        .replace('{TRANSCRIPT}', () => transcript);
     } catch (err) {
       log.error('Could not build retrospective prompt', { id, error: err.message });
       return res.status(500).json({ success: false, error: 'Could not build prompt' });
@@ -461,6 +481,10 @@ class SessionsController {
       }
     } catch { /* ignore — no prior retro means supersedesTs stays null */ }
 
+    // FIX-02: acquire the single-flight lock BEFORE responding so an instant
+    // client retry on the 200 still sees the lock on the second attempt.
+    this._retrospectiveLocks.set(id, requestId);
+
     // Send 200 with requestId immediately; Socket.IO carries the actual stream.
     res.json({ success: true, requestId });
 
@@ -477,45 +501,51 @@ class SessionsController {
 
     let fullText = '';
     let finalProvider = 'unknown';
+    // FIX-02: outer try/finally guarantees the single-flight lock is released
+    // on success AND on error (any throw below hits the finally).
     try {
-      for await (const { token, provider } of aiService.callAIWithFallbackStream(messages, { temperature: 0.5, max_tokens: 2048 })) {
-        fullText += token;
-        if (provider) finalProvider = provider;
-        if (_retrospectiveBroadcaster) {
-          _retrospectiveBroadcaster('retrospective_token', { token, requestId });
+      try {
+        for await (const { token, provider } of aiService.callAIWithFallbackStream(messages, { temperature: 0.5, max_tokens: 2048 })) {
+          fullText += token;
+          if (provider) finalProvider = provider;
+          if (_retrospectiveBroadcaster) {
+            _retrospectiveBroadcaster('retrospective_token', { token, requestId });
+          }
         }
-      }
-      // Append to JSONL — but only if file still exists (Pitfall 2: user may have deleted it mid-stream).
-      if (fs.existsSync(filePath)) {
-        const event = {
-          type: 'retrospective',
-          ts: new Date().toISOString(),
-          unix_ts: Math.floor(Date.now() / 1000),
-          provider: finalProvider,
-          model: null,
-          prompt_type: 'retrospective',
-          text: fullText,
-          supersedes_ts: supersedesTs,
-        };
-        try {
-          await fs.promises.appendFile(filePath, JSON.stringify(event) + '\n');
-        } catch (appendErr) {
-          log.warn('Could not append retrospective to JSONL', { id, error: appendErr.message });
+        // Append to JSONL — but only if file still exists (Pitfall 2: user may have deleted it mid-stream).
+        if (fs.existsSync(filePath)) {
+          const event = {
+            type: 'retrospective',
+            ts: new Date().toISOString(),
+            unix_ts: Math.floor(Date.now() / 1000),
+            provider: finalProvider,
+            model: null,
+            prompt_type: 'retrospective',
+            text: fullText,
+            supersedes_ts: supersedesTs,
+          };
+          try {
+            await fs.promises.appendFile(filePath, JSON.stringify(event) + '\n');
+          } catch (appendErr) {
+            log.warn('Could not append retrospective to JSONL', { id, error: appendErr.message });
+          }
+        } else {
+          log.warn('Session file deleted mid-stream; skipping JSONL append', { id });
         }
-      } else {
-        log.warn('Session file deleted mid-stream; skipping JSONL append', { id });
-      }
 
-      if (_retrospectiveBroadcaster) {
-        _retrospectiveBroadcaster('retrospective_complete', {
-          requestId, response: fullText, provider: finalProvider,
-        });
+        if (_retrospectiveBroadcaster) {
+          _retrospectiveBroadcaster('retrospective_complete', {
+            requestId, response: fullText, provider: finalProvider,
+          });
+        }
+      } catch (err) {
+        log.error('Retrospective streaming failed', { id, error: err.message });
+        if (_retrospectiveBroadcaster) {
+          _retrospectiveBroadcaster('retrospective_error', { requestId, error: err.message });
+        }
       }
-    } catch (err) {
-      log.error('Retrospective streaming failed', { id, error: err.message });
-      if (_retrospectiveBroadcaster) {
-        _retrospectiveBroadcaster('retrospective_error', { requestId, error: err.message });
-      }
+    } finally {
+      this._retrospectiveLocks.delete(id);
     }
   }
 

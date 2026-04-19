@@ -41,6 +41,7 @@ class SessionRecorder {
     // _activeSession shape: { path, timestamp, startMs, utteranceCount, renamed }
     this._queue = [];
     this._flushing = false;
+    this._shutdownResolve = null;   // FIX-01: Promise resolver when shutdown is awaiting drain.
     this._idleTimer = null;
     this._profileSnapshotProvider = null;   // injected by Plan 05-02 via setProfileProvider
     this._settingsSnapshotProvider = null;  // injected at namespace setup (Task 2)
@@ -222,9 +223,37 @@ class SessionRecorder {
     }
   }
 
+  // ── Single-writer invariant (FIX-01) ───────────────────────────────
+  // At most ONE fs.appendFile is in flight for this SessionRecorder at any
+  // moment, regardless of whether the call came via _enqueue (regular path)
+  // or shutdown()/_closeSession (shutdown path). Both paths share this single
+  // drain loop gated by `_flushing`. Shutdown hands its resolver to
+  // `_shutdownResolve` and lets the in-flight drain call it when the queue
+  // reaches empty. Without this guard, `_flush` and `_flushNow` could each
+  // schedule their own `fs.appendFile` on the same session file before
+  // either callback fired, producing interleaved bytes on Windows where
+  // Node does not serialize concurrent appendFile calls to the same path.
   _flush() {
-    if (this._queue.length === 0) { this._flushing = false; return; }
-    if (!this._activeSession) { this._flushing = false; this._queue.length = 0; return; }
+    if (this._queue.length === 0) {
+      this._flushing = false;
+      // Drain is empty — if shutdown was awaiting completion, signal it now.
+      if (this._shutdownResolve) {
+        const resolve = this._shutdownResolve;
+        this._shutdownResolve = null;
+        resolve();
+      }
+      return;
+    }
+    if (!this._activeSession) {
+      this._flushing = false;
+      this._queue.length = 0;
+      if (this._shutdownResolve) {
+        const resolve = this._shutdownResolve;
+        this._shutdownResolve = null;
+        resolve();
+      }
+      return;
+    }
     const batch = this._queue.splice(0, this._queue.length).join('');
     const filePath = this._activeSession.path;
     const sessionAtCallTime = this._activeSession;
@@ -234,27 +263,34 @@ class SessionRecorder {
         sessionAtCallTime.created = true;
         this._applyPendingRename();
       }
-      if (this._queue.length > 0) setImmediate(() => this._flush());
-      else this._flushing = false;
+      if (this._queue.length > 0) {
+        setImmediate(() => this._flush());
+      } else {
+        this._flushing = false;
+        // Queue reached empty after this callback — if shutdown is awaiting
+        // drain, resolve its promise. Capture + null the member before
+        // invoking so a re-entrant enqueue inside the resolver can't see
+        // a stale resolver.
+        if (this._shutdownResolve) {
+          const resolve = this._shutdownResolve;
+          this._shutdownResolve = null;
+          resolve();
+        }
+      }
     });
   }
 
   _flushNow(resolve) {
-    // Final flush variant for shutdown — invokes resolve after the appendFile callback.
-    if (this._queue.length === 0) { this._flushing = false; resolve(); return; }
-    if (!this._activeSession) { this._flushing = false; this._queue.length = 0; resolve(); return; }
-    const batch = this._queue.splice(0, this._queue.length).join('');
-    const filePath = this._activeSession.path;
-    const sessionAtCallTime = this._activeSession;
-    fs.appendFile(filePath, batch, (err) => {
-      if (err) log.error('Session shutdown append error', { path: filePath, error: err.message });
-      else if (sessionAtCallTime === this._activeSession) {
-        sessionAtCallTime.created = true;
-        this._applyPendingRename();
-      }
-      if (this._queue.length > 0) this._flushNow(resolve);
-      else { this._flushing = false; resolve(); }
-    });
+    // FIX-01: shutdown drain no longer spawns a parallel fs.appendFile. It
+    // stashes the resolver and, if the single drain loop isn't already
+    // running, kicks it once via setImmediate. The in-flight `_flush`
+    // callback will invoke the stashed resolver when the queue reaches
+    // empty, guaranteeing a single writer on the session file.
+    this._shutdownResolve = resolve;
+    if (!this._flushing) {
+      this._flushing = true;
+      setImmediate(() => this._flush());
+    }
   }
 
   _applyPendingRename() {

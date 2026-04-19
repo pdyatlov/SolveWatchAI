@@ -76,6 +76,44 @@
     label { font-size: 12px; font-weight: 500; color: #94a3b8; }
     .hint { font-size: 11px; color: var(--muted); }
 
+    /* ── Segmented pill toggle (Phase 11 — Answer Format) ─────────── */
+    .segmented {
+      display: inline-flex;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 7px;
+      padding: 2px;
+      gap: 2px;
+      width: fit-content;
+    }
+    .segmented-pill {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+      padding: 6px 18px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      min-width: 80px;
+      text-align: center;
+    }
+    .segmented-pill:hover { color: var(--text); }
+    .segmented-pill[aria-checked="true"] {
+      background: var(--accent);
+      color: #ffffff;
+    }
+    .segmented-pill[aria-checked="true"]:hover { color: #ffffff; }
+    .segmented-error {
+      font-size: 11px;
+      color: var(--red);
+      margin-top: 4px;
+      display: none;
+    }
+    .segmented-error.show { display: block; }
+
     /* ── Hotkeys section (Phase 3) ─────────────────────── */
     .hotkey-banner {
       padding: 10px 14px; margin-bottom: 12px;
@@ -132,6 +170,19 @@
       font-size: 11px;
       color: var(--yellow);
       margin-top: -4px;
+    }
+
+    /* Phase 9: mouse-bound row hint (neutral; not an error, not a warning) */
+    .hotkey-row-hint-mouse {
+      grid-column: 1 / -1;
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: -4px;
+    }
+
+    /* Phase 9: legend at top of Hotkeys section */
+    #hotkeysLegend {
+      margin-bottom: 4px;
     }
 
     .hotkey-actions {
@@ -707,6 +758,15 @@
 
     code { font-family: 'SF Mono', 'Monaco', monospace; font-size: 11px; background: rgba(255,255,255,0.07); padding: 1px 5px; border-radius: 3px; }
     hr.sep { border: none; border-top: 1px solid var(--border); }
+
+    /* ── Tab bar (Phase 10) ─────────────────────── */
+    .tab-bar { display: flex; gap: 6px; padding: 12px 0 18px; border-bottom: 1px solid var(--border); margin-bottom: 24px; flex-wrap: wrap; }
+    .tab-bar [role="tab"] { background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+    .tab-bar [role="tab"]:hover { background: var(--surface2); color: var(--text); }
+    .tab-bar [role="tab"][aria-selected="true"] { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+    .tab-bar [role="tab"]:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .tab-bar [role="tab"]:focus:not(:focus-visible) { outline: none; }
+    .tab-panel[hidden] { display: none; }
   </style>
 </head>
 <body>
@@ -721,6 +781,19 @@
       </div>
     </div>
   </header>
+
+  <!-- ── Tab bar (Phase 10) ──────────────────────────────────────── -->
+  <div class="tab-bar" role="tablist" aria-label="Settings sections">
+    <button type="button" role="tab" data-tab="ai"       aria-selected="true"  tabindex="0"  id="tab-btn-ai">AI</button>
+    <button type="button" role="tab" data-tab="audio"    aria-selected="false" tabindex="-1" id="tab-btn-audio">Audio</button>
+    <button type="button" role="tab" data-tab="hotkeys"  aria-selected="false" tabindex="-1" id="tab-btn-hotkeys">Hotkeys</button>
+    <button type="button" role="tab" data-tab="profile"  aria-selected="false" tabindex="-1" id="tab-btn-profile">Profile</button>
+    <button type="button" role="tab" data-tab="sessions" aria-selected="false" tabindex="-1" id="tab-btn-sessions">Sessions</button>
+    <button type="button" role="tab" data-tab="hud"      aria-selected="false" tabindex="-1" id="tab-btn-hud">HUD</button>
+  </div>
+
+  <!-- ── Tab panel: AI ───────────────────────────────────────────── -->
+  <div class="tab-panel" role="tabpanel" data-tab="ai" id="tab-panel-ai" aria-labelledby="tab-btn-ai">
 
   <!-- ── AI Providers ─────────────────────────────────────────── -->
   <div class="section">
@@ -740,78 +813,15 @@
       </div>
 
       <div class="provider-list" id="providerList"></div>
-    </div>
-  </div>
 
-  <!-- ── Profile (Phase 5 / SESS-06, SESS-07) ───────────────────── -->
-  <div class="section" id="profileSection">
-    <div class="section-header">
-      <span class="section-title">Profile</span>
-      <span style="font-size:11px;color:var(--muted)">Prepended to interview-answer prompts</span>
-    </div>
-    <div class="section-body">
-      <div id="profileWarnBanner" class="profile-warn-banner" role="status">
-        Profile is getting long — responses may be slower for the first token.
-      </div>
-      <div class="field">
-        <label for="profileTextarea" style="font-weight:400">Stable facts about you (markdown)</label>
-        <textarea id="profileTextarea" class="profile-textarea" placeholder="e.g.&#10;I'm a senior backend engineer with 8 years of experience in Python and distributed systems.&#10;Currently interviewing for Staff Engineer roles at fintech companies.&#10;Strengths: system design, reliability, incident management.&#10;Prefer concise, direct answers with concrete examples."></textarea>
-        <div id="profileCounter" class="profile-counter" aria-live="polite" aria-label="Character count">0 / 8000</div>
-      </div>
-      <div class="profile-actions">
-        <span id="profileStatus" class="profile-status"></span>
-        <button type="button" class="btn btn-primary" id="profileSaveBtn">Save Profile</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Session History (Phase 5 / SESS-03) ────────────────────── -->
-  <div class="section" id="sessionHistorySection">
-    <div class="section-header">
-      <span class="section-title">Session History</span>
-      <span style="font-size:11px;color:var(--muted)">Newest first</span>
-    </div>
-    <div class="section-body">
-      <div class="session-table-head">
-        <span>Started</span>
-        <span>Duration</span>
-        <span>Utterances</span>
-        <span>Size</span>
-        <span></span>
-      </div>
-      <div id="sessionList" class="session-table"></div>
-      <div id="sessionEmpty" class="session-empty" style="display:none">
-        <strong>No sessions yet</strong>
-        Start Listen mode to record your first session.
-      </div>
-    </div>
-  </div>
-
-  <!-- ── Interview Role ────────────────────────────────────────── -->
-  <div class="section">
-    <div class="section-header">
-      <span class="section-title">Interview Role</span>
-    </div>
-    <div class="section-body">
-      <div class="field">
-        <label>Your Interview Role</label>
-        <input type="text" id="interviewRole" placeholder="e.g. Frontend Engineer, Android Developer, Platform Engineer…">
-        <span class="hint">When set, AI answers are tailored to your domain — using relevant frameworks, tools, and terminology. Leave blank for generic technical answers.</span>
-      </div>
-
-      <div>
-        <button class="accordion-btn" id="promptAccordionBtn">
-          <span>View Active Prompts</span>
-          <span class="accordion-arrow" id="promptArrow">▼</span>
-        </button>
-        <div class="accordion-body" id="promptAccordionBody">
-          <div class="prompt-tabs">
-            <button class="prompt-tab active" data-type="interview-answer">Answer Prompt</button>
-            <button class="prompt-tab" data-type="transcription">Transcription Prompt</button>
-          </div>
-          <textarea id="promptPreviewText" readonly rows="12" style="font-family:'SF Mono','Monaco',monospace;font-size:11px;line-height:1.6"></textarea>
-          <span class="hint" style="margin-top:4px">Read-only. Edit the <code>.txt</code> files in the <code>prompts/</code> folder to change the base prompts. Role context is injected automatically at the top.</span>
+      <div class="field" id="answerFormatField">
+        <label>Answer Format</label>
+        <div class="segmented" role="radiogroup" aria-label="Answer format">
+          <button type="button" class="segmented-pill" role="radio" data-value="bullets" aria-checked="true" id="answerFormatBulletsPill">Bullets</button>
+          <button type="button" class="segmented-pill" role="radio" data-value="prose" aria-checked="false" id="answerFormatProsePill">Prose</button>
         </div>
+        <span class="hint">Bullets = up to 5 short lines. Prose = one short paragraph. Applied to the next AI answer.</span>
+        <span class="segmented-error" id="answerFormatError">Save failed. Please try again.</span>
       </div>
     </div>
   </div>
@@ -836,6 +846,11 @@
       </div>
     </div>
   </div>
+
+  </div><!-- /tab-panel ai -->
+
+  <!-- ── Tab panel: Audio ────────────────────────────────────────── -->
+  <div class="tab-panel" role="tabpanel" data-tab="audio" id="tab-panel-audio" aria-labelledby="tab-btn-audio" hidden>
 
   <!-- ── Audio Devices ─────────────────────────────────────────── -->
   <div class="section" id="audioDevicesSection">
@@ -918,6 +933,120 @@
     </div>
   </div>
 
+  </div><!-- /tab-panel audio -->
+
+  <!-- ── Tab panel: Hotkeys ──────────────────────────────────────── -->
+  <div class="tab-panel" role="tabpanel" data-tab="hotkeys" id="tab-panel-hotkeys" aria-labelledby="tab-btn-hotkeys" hidden>
+
+  <!-- ── Hotkeys (Phase 3) ────────────────────────────── -->
+  <div class="section" id="hotkeysSection">
+    <div class="section-header">
+      <span class="section-title">Hotkeys</span>
+    </div>
+    <div class="section-body">
+      <div id="hotkeysBanner" class="hotkey-banner"></div>
+      <p class="hint" id="hotkeysLegend">Click a field, then press a key combo, side mouse button, or scroll wheel.</p>
+
+      <div id="hotkeysList">
+        <!-- Rows rendered dynamically from config -->
+      </div>
+
+      <div class="hotkey-actions">
+        <button type="button" class="btn-save"  id="hotkeysSaveBtn"  disabled>Save</button>
+        <button type="button" class="btn-reset" id="hotkeysResetBtn">Reset all to defaults</button>
+        <span id="hotkeysSaveStatus" class="hint" style="margin-left:auto; align-self:center;"></span>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /tab-panel hotkeys -->
+
+  <!-- ── Tab panel: Profile ──────────────────────────────────────── -->
+  <div class="tab-panel" role="tabpanel" data-tab="profile" id="tab-panel-profile" aria-labelledby="tab-btn-profile" hidden>
+
+  <!-- ── Profile (Phase 5 / SESS-06, SESS-07) ───────────────────── -->
+  <div class="section" id="profileSection">
+    <div class="section-header">
+      <span class="section-title">Profile</span>
+      <span style="font-size:11px;color:var(--muted)">Prepended to interview-answer prompts</span>
+    </div>
+    <div class="section-body">
+      <div id="profileWarnBanner" class="profile-warn-banner" role="status">
+        Profile is getting long — responses may be slower for the first token.
+      </div>
+      <div class="field">
+        <label for="profileTextarea" style="font-weight:400">Stable facts about you (markdown)</label>
+        <textarea id="profileTextarea" class="profile-textarea" placeholder="e.g.&#10;I'm a senior backend engineer with 8 years of experience in Python and distributed systems.&#10;Currently interviewing for Staff Engineer roles at fintech companies.&#10;Strengths: system design, reliability, incident management.&#10;Prefer concise, direct answers with concrete examples."></textarea>
+        <div id="profileCounter" class="profile-counter" aria-live="polite" aria-label="Character count">0 / 8000</div>
+      </div>
+      <div class="profile-actions">
+        <span id="profileStatus" class="profile-status"></span>
+        <button type="button" class="btn btn-primary" id="profileSaveBtn">Save Profile</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Interview Role ────────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-title">Interview Role</span>
+    </div>
+    <div class="section-body">
+      <div class="field">
+        <label>Your Interview Role</label>
+        <input type="text" id="interviewRole" placeholder="e.g. Frontend Engineer, Android Developer, Platform Engineer…">
+        <span class="hint">When set, AI answers are tailored to your domain — using relevant frameworks, tools, and terminology. Leave blank for generic technical answers.</span>
+      </div>
+
+      <div>
+        <button class="accordion-btn" id="promptAccordionBtn">
+          <span>View Active Prompts</span>
+          <span class="accordion-arrow" id="promptArrow">▼</span>
+        </button>
+        <div class="accordion-body" id="promptAccordionBody">
+          <div class="prompt-tabs">
+            <button class="prompt-tab active" data-type="interview-answer">Answer Prompt</button>
+            <button class="prompt-tab" data-type="transcription">Transcription Prompt</button>
+          </div>
+          <textarea id="promptPreviewText" readonly rows="12" style="font-family:'SF Mono','Monaco',monospace;font-size:11px;line-height:1.6"></textarea>
+          <span class="hint" style="margin-top:4px">Read-only. Edit the <code>.txt</code> files in the <code>prompts/</code> folder to change the base prompts. Role context is injected automatically at the top.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /tab-panel profile -->
+
+  <!-- ── Tab panel: Sessions ─────────────────────────────────────── -->
+  <div class="tab-panel" role="tabpanel" data-tab="sessions" id="tab-panel-sessions" aria-labelledby="tab-btn-sessions" hidden>
+
+  <!-- ── Session History (Phase 5 / SESS-03) ────────────────────── -->
+  <div class="section" id="sessionHistorySection">
+    <div class="section-header">
+      <span class="section-title">Session History</span>
+      <span style="font-size:11px;color:var(--muted)">Newest first</span>
+    </div>
+    <div class="section-body">
+      <div class="session-table-head">
+        <span>Started</span>
+        <span>Duration</span>
+        <span>Utterances</span>
+        <span>Size</span>
+        <span></span>
+      </div>
+      <div id="sessionList" class="session-table"></div>
+      <div id="sessionEmpty" class="session-empty" style="display:none">
+        <strong>No sessions yet</strong>
+        Start Listen mode to record your first session.
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /tab-panel sessions -->
+
+  <!-- ── Tab panel: HUD ──────────────────────────────────────────── -->
+  <div class="tab-panel" role="tabpanel" data-tab="hud" id="tab-panel-hud" aria-labelledby="tab-btn-hud" hidden>
+
   <!-- ── HUD Appearance ────────────────────────────────────────── -->
   <div class="section">
     <div class="section-header">
@@ -940,25 +1069,7 @@
     </div>
   </div>
 
-  <!-- ── Hotkeys (Phase 3) ────────────────────────────── -->
-  <div class="section" id="hotkeysSection">
-    <div class="section-header">
-      <span class="section-title">Hotkeys</span>
-    </div>
-    <div class="section-body">
-      <div id="hotkeysBanner" class="hotkey-banner"></div>
-
-      <div id="hotkeysList">
-        <!-- Rows rendered dynamically from config -->
-      </div>
-
-      <div class="hotkey-actions">
-        <button type="button" class="btn-save"  id="hotkeysSaveBtn"  disabled>Save</button>
-        <button type="button" class="btn-reset" id="hotkeysResetBtn">Reset all to defaults</button>
-        <span id="hotkeysSaveStatus" class="hint" style="margin-left:auto; align-self:center;"></span>
-      </div>
-    </div>
-  </div>
+  </div><!-- /tab-panel hud -->
 
 </div><!-- /layout -->
 
@@ -1108,6 +1219,12 @@ async function loadConfig() {
 
     // Interview role
     document.getElementById('interviewRole').value = data.interview_role || '';
+
+    // Answer format (Phase 11)
+    const fmt = data.answer_format === 'prose' ? 'prose' : 'bullets';
+    document.getElementById('answerFormatBulletsPill').setAttribute('aria-checked', String(fmt === 'bullets'));
+    document.getElementById('answerFormatProsePill').setAttribute('aria-checked', String(fmt === 'prose'));
+    document.getElementById('answerFormatError').classList.remove('show');
 
     renderProviders();
     updateFallbackChain();
@@ -1433,6 +1550,77 @@ document.getElementById('screenshotsPath').addEventListener('input', e => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Answer Format live-save (Phase 11)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+(function wireAnswerFormatPills() {
+  const pills = [
+    document.getElementById('answerFormatBulletsPill'),
+    document.getElementById('answerFormatProsePill'),
+  ];
+  const errEl = document.getElementById('answerFormatError');
+
+  function currentFormat() {
+    for (const pill of pills) {
+      if (pill.getAttribute('aria-checked') === 'true') return pill.dataset.value;
+    }
+    return 'bullets';
+  }
+
+  function setActive(value) {
+    for (const pill of pills) {
+      pill.setAttribute('aria-checked', String(pill.dataset.value === value));
+    }
+  }
+
+  async function persistFormat(newValue, previousValue) {
+    const isLocalStt = document.getElementById('tabSttLocal').classList.contains('active');
+    const sttModel = isLocalStt
+      ? document.getElementById('sttLocalModel').value
+      : document.getElementById('sttApiModel').value;
+    const opVal = +document.getElementById('opacitySlider').value;
+    const payload = {
+      providers: providers.map(p => {
+        if (getMeta(p.id).noKey) {
+          return { id: p.id, key: p.enabled ? 'enabled' : '', enabled: p.enabled, model: p.model || 'sonnet' };
+        }
+        return { id: p.id, key: p.newKey || '', enabled: p.enabled, model: p.model || '' };
+      }),
+      stt_model:        sttModel,
+      answer_format:    newValue,
+      hud_opacity:      opVal,
+      screenshots_path: document.getElementById('screenshotsPath').value.trim(),
+      interview_role:   document.getElementById('interviewRole').value.trim(),
+    };
+    try {
+      const res = await fetch('/api/config/full', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Save failed');
+      errEl.classList.remove('show');
+      showToast('Answer format: ' + newValue, 'ok');
+    } catch (err) {
+      setActive(previousValue);
+      errEl.classList.add('show');
+      showToast('Save failed — check server', 'err');
+    }
+  }
+
+  for (const pill of pills) {
+    pill.addEventListener('click', () => {
+      const previous = currentFormat();
+      const next = pill.dataset.value;
+      if (next === previous) return;
+      setActive(next);
+      errEl.classList.remove('show');
+      persistFormat(next, previous);
+    });
+  }
+})();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Prompt accordion
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 document.getElementById('promptAccordionBtn').addEventListener('click', () => {
@@ -1506,7 +1694,7 @@ async function saveSettings() {
       };
     }),
     stt_model:        sttModel,
-    answer_mode:      'auto',
+    answer_format:    (document.getElementById('answerFormatProsePill')?.getAttribute('aria-checked') === 'true' ? 'prose' : 'bullets'),
     hud_opacity:      opVal,
     screenshots_path: document.getElementById('screenshotsPath').value.trim(),
     interview_role:   document.getElementById('interviewRole').value.trim(),
@@ -1714,6 +1902,144 @@ loadConfig();
 </script>
 
 <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<!-- Tabs (Phase 10) — activation state, click handler, localStorage persistence -->
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+<script>
+(function tabsModule() {
+  const VALID_TABS  = ['ai', 'audio', 'hotkeys', 'profile', 'sessions', 'hud'];
+  const DEFAULT_TAB = 'ai';
+  const STORAGE_KEY = 'solvewatch.settings.activeTab';
+
+  let activeTab = DEFAULT_TAB;
+
+  // Read persisted active tab. Returns DEFAULT_TAB if missing, invalid, or
+  // localStorage throws (private mode, corrupted store, etc.). D-06 / D-07.
+  function loadActiveTab() {
+    try {
+      const v = localStorage.getItem(STORAGE_KEY);
+      if (v && VALID_TABS.indexOf(v) !== -1) return v;
+    } catch (_) { /* private mode / disabled storage — fall through */ }
+    return DEFAULT_TAB;
+  }
+
+  // Persist active tab. Swallow exceptions silently — losing persistence is
+  // acceptable degradation per D-07 ("losing active-tab on browser data clear
+  // is acceptable degradation").
+  function saveActiveTab(name) {
+    try { localStorage.setItem(STORAGE_KEY, name); } catch (_) { /* swallow */ }
+  }
+
+  // Apply a tab name to the DOM: toggle hidden on panels, toggle aria-selected
+  // and tabindex on buttons (roving tabindex per D-09). No-op if name invalid.
+  function setActiveTab(name) {
+    if (VALID_TABS.indexOf(name) === -1) return;
+    activeTab = name;
+
+    // Panels: exactly one visible, others hidden.
+    const panels = document.querySelectorAll('.tab-panel[data-tab]');
+    for (const p of panels) {
+      if (p.dataset.tab === name) p.removeAttribute('hidden');
+      else                        p.setAttribute('hidden', '');
+    }
+
+    // Buttons: aria-selected + roving tabindex.
+    const buttons = document.querySelectorAll('.tab-bar [role="tab"][data-tab]');
+    for (const b of buttons) {
+      const isActive = (b.dataset.tab === name);
+      b.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      b.setAttribute('tabindex',      isActive ? '0'    : '-1');
+    }
+
+    saveActiveTab(name);
+  }
+
+  // Delegated click listener on the tab bar — one listener per page.
+  function attachClickHandler() {
+    const bar = document.querySelector('.tab-bar[role="tablist"]');
+    if (!bar) return;
+    bar.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('[role="tab"][data-tab]');
+      if (!btn || !bar.contains(btn)) return;
+      setActiveTab(btn.dataset.tab);
+      // Move focus onto the activated tab so keyboard users land here next.
+      try { btn.focus(); } catch (_) { /* swallow */ }
+    });
+  }
+
+  // Phase 10 D-08: Arrow Left / Arrow Right keyboard navigation across the
+  // tab bar with wrap. D-09 roving tabindex: focus moves AND activates in one
+  // step. D-11/D-12 record-mode interlock: short-circuit BEFORE preventDefault
+  // so the existing Phase 3 capture-phase keydown handler (registered on
+  // document with capture=true at settings.html ~line 2166) sees the arrow
+  // key as a valid accelerator candidate (eventToAccelerator maps ArrowLeft
+  // → 'Left', ArrowRight → 'Right' at ~line 1976-1977).
+  function handleKeydown(ev) {
+    // Record-mode interlock — D-12 demands this run BEFORE preventDefault.
+    // Reads the existing Phase 3 hotkeysModule contract; null = not recording.
+    const HK = window.__hotkeysModule;
+    if (HK && HK.recordingSlot) return;
+
+    // Only horizontal-arrow keys are bound — see Phase 10 CONTEXT D-08 for
+    // the explicit exclusion list. Anything else falls through to browser
+    // default (or to the existing Phase 3 capture-phase record handler).
+    if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+
+    // Find current button (the one that has focus, or fall back to the
+    // currently aria-selected one).
+    const bar = ev.currentTarget;
+    const buttons = Array.from(bar.querySelectorAll('[role="tab"][data-tab]'));
+    if (buttons.length === 0) return;
+    const focusedBtn = document.activeElement && document.activeElement.closest
+                       ? document.activeElement.closest('[role="tab"][data-tab]')
+                       : null;
+    const currentIdx = focusedBtn
+      ? buttons.indexOf(focusedBtn)
+      : buttons.findIndex(b => b.getAttribute('aria-selected') === 'true');
+    if (currentIdx === -1) return;
+
+    const delta   = (ev.key === 'ArrowRight') ? 1 : -1;
+    const nextIdx = (currentIdx + delta + buttons.length) % buttons.length;
+    const nextBtn = buttons[nextIdx];
+
+    ev.preventDefault();    // suppress browser scroll-on-arrow inside the bar
+    ev.stopPropagation();   // tab bar owns this arrow event
+
+    setActiveTab(nextBtn.dataset.tab);
+    try { nextBtn.focus(); } catch (_) { /* swallow */ }
+  }
+
+  // Bind the keydown listener on the tab bar element only — natural scoping
+  // means it only fires when focus is inside the tab bar. The interlock guard
+  // inside handleKeydown is the safety net for the edge case where the user
+  // Tab-focused into the bar then clicked a hotkey row (rare but reachable).
+  function attachKeydownHandler() {
+    const bar = document.querySelector('.tab-bar[role="tablist"]');
+    if (!bar) return;
+    bar.addEventListener('keydown', handleKeydown);
+  }
+
+  // Bootstrap on DOMContentLoaded. Idempotent — calling setActiveTab with the
+  // already-active tab is a safe no-op refresh.
+  document.addEventListener('DOMContentLoaded', () => {
+    attachClickHandler();
+    attachKeydownHandler();
+    setActiveTab(loadActiveTab());
+  });
+
+  // Expose for plan 03 (keyboard nav) and any future consumer.
+  window.__tabsModule = {
+    VALID_TABS,
+    DEFAULT_TAB,
+    STORAGE_KEY,
+    get activeTab() { return activeTab; },
+    setActiveTab,
+    loadActiveTab,
+    saveActiveTab,
+  };
+})();
+</script>
+
+<!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 <!-- Hotkeys module (Phase 3) — initial GET + state facade                    -->
 <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
 <script>
@@ -1745,6 +2071,7 @@ loadConfig();
     set recordingSlot(v) { recordingSlot = v; },
     get osRejections() { return osRejections; },
     set osRejections(v) { osRejections = v; },
+    prettifyAccel: (accel) => prettifyAccel(accel),
   };
 
   // Convert an Electron accelerator ("CommandOrControl+Shift+H") into a human string
@@ -1840,6 +2167,117 @@ loadConfig();
     return [...mods, token].join('+');
   }
 
+  // ── 1b. Phase 9: mouse + wheel accelerator resolvers ─────────────
+  // Siblings to eventToAccelerator (keyboard-only). Do NOT fold into it —
+  // keyboard and mouse capture follow different event shapes.
+  function modifierPrefixFromBrowser(ev) {
+    const mods = [];
+    if (ev.ctrlKey || ev.metaKey) mods.push('CommandOrControl');
+    if (ev.shiftKey)              mods.push('Shift');
+    if (ev.altKey)                mods.push('Alt');
+    return mods;
+  }
+
+  // Phase 9: browser mousedown.button mapping:
+  //   0 = left (Mouse1, D-08 cancel)
+  //   1 = middle -> 'Mouse3'
+  //   2 = right (Mouse2, D-08 cancel)
+  //   3 = back / XButton1 -> 'Mouse4'
+  //   4 = forward / XButton2 -> 'Mouse5'
+  // Note: browser ev.button differs from uIOhook ev.button by 1 — token level is identical
+  // so the accelerator string grammar is shared across browser capture and Node dispatcher.
+  function mouseEventToAccelerator(ev) {
+    const mods = modifierPrefixFromBrowser(ev);
+    let token = null;
+    switch (ev.button) {
+      case 1: token = 'Mouse3'; break;
+      case 3: token = 'Mouse4'; break;
+      case 4: token = 'Mouse5'; break;
+      default: return null;  // 0 (left), 2 (right), or unrecognised -> caller handles as cancel
+    }
+    return [...mods, token].join('+');
+  }
+
+  // Phase 9: vertical wheel only (D-05). Horizontal wheel deferred — silent no-op.
+  function wheelEventToAccelerator(ev) {
+    if (ev.deltaY === 0) return null;
+    const mods = modifierPrefixFromBrowser(ev);
+    const token = ev.deltaY < 0 ? 'WheelUp' : 'WheelDown';
+    return [...mods, token].join('+');
+  }
+
+  // Phase 9: single commit path shared by keydown/mousedown/wheel handlers.
+  // Uses formatAccelForDisplay so mouse tokens render with their physical-button alias.
+  function commitCapture(accel) {
+    M.currentHotkeys[M.recordingSlot] = accel;
+    const btn = document.querySelector(`.hotkey-capture[data-slot="${M.recordingSlot}"]`);
+    if (btn) btn.textContent = formatAccelForDisplay(accel);
+    cancelRecord();
+    revalidate();
+  }
+
+  // Phase 9: prettify accelerator + append physical-button alias for mouse tokens.
+  // Uses hotkeysModule.prettifyAccel (defined in the hotkeysModule IIFE and re-exposed
+  // via window.__hotkeysModule) for modifier prettification, then appends the suffix.
+  function formatAccelForDisplay(accel) {
+    if (!accel) return '(none)';
+    const pretty = M.prettifyAccel(accel);
+    const parts  = accel.split('+');
+    const last   = parts[parts.length - 1];
+    const ALIASES = { Mouse3: 'Middle', Mouse4: 'Back', Mouse5: 'Forward' };
+    const alias = ALIASES[last];
+    return alias ? `${pretty} (${alias})` : pretty;
+  }
+
+  // Phase 9: detect whether an accelerator's final token is mouse or wheel.
+  // Used by render() to decide whether to emit the .hotkey-row-hint-mouse line.
+  function hasMouseToken(accel) {
+    if (!accel) return false;
+    const parts = accel.split('+');
+    const last = parts[parts.length - 1];
+    return last === 'Mouse3' || last === 'Mouse4' || last === 'Mouse5'
+        || last === 'WheelUp' || last === 'WheelDown';
+  }
+
+  // Phase 9: capture-phase mousedown handler (sibling to onCaptureKeydown).
+  function onCaptureMousedown(ev) {
+    if (!M.recordingSlot) return;
+    // D-08: Mouse1 (left, button 0) / Mouse2 (right, button 2) cancel silently.
+    // Right-click also preventDefault's to suppress the context menu.
+    if (ev.button === 0 || ev.button === 2) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      cancelRecord();
+      return;
+    }
+    const accel = mouseEventToAccelerator(ev);
+    if (!accel) return;  // unrecognised button — stay in record mode
+    ev.preventDefault();
+    ev.stopPropagation();
+    commitCapture(accel);
+  }
+
+  // Phase 9: capture-phase wheel handler.
+  function onCaptureWheel(ev) {
+    if (!M.recordingSlot) return;
+    const accel = wheelEventToAccelerator(ev);
+    if (!accel) return;  // horizontal wheel — silent no-op (D-05)
+    ev.preventDefault();
+    ev.stopPropagation();
+    commitCapture(accel);
+  }
+
+  // Phase 9: belt-and-suspenders context-menu suppression during record mode.
+  // onCaptureMousedown already preventDefaults on right-click; this catches any
+  // capture-phase ordering surprise where the browser menu would otherwise flash.
+  function suppressContextMenu(ev) {
+    if (!M.recordingSlot) return;
+    ev.preventDefault();
+    // No cancelRecord here — onCaptureMousedown will already have fired for the right-click
+    // and called cancelRecord. This is belt-and-suspenders to make sure the browser menu
+    // never flashes even if capture phase order surprised us.
+  }
+
   // ── 2. Render the seven rows ──────────────────────────────────────
   function render() {
     const list = document.getElementById('hotkeysList');
@@ -1865,11 +2303,25 @@ loadConfig();
       btn.type = 'button';
       btn.className = 'hotkey-capture';
       btn.dataset.slot = slotId;
-      btn.textContent = M.currentHotkeys[slotId] || '(none)';
+      btn.textContent = formatAccelForDisplay(M.currentHotkeys[slotId]);
       btn.addEventListener('click', () => beginRecord(slotId, btn));
 
       row.appendChild(left);
       row.appendChild(btn);
+
+      // Phase 9: if this row is mouse-bound, render a muted hint line below the button.
+      // On macOS (where the feature is disabled per CONTEXT D-13), show the alternate copy.
+      const accel = M.currentHotkeys[slotId];
+      if (accel && hasMouseToken(accel)) {
+        const isMacBrowser = /Mac|iPhone|iPad/.test(navigator.platform);
+        const hintMouse = document.createElement('div');
+        hintMouse.className = 'hotkey-row-hint-mouse';
+        hintMouse.textContent = isMacBrowser
+          ? 'Mouse bindings are Windows-only in this version.'
+          : 'Bound — fires when Windows delivers the event.';
+        row.appendChild(hintMouse);
+      }
+
       list.appendChild(row);
     }
     revalidate();
@@ -1888,8 +2340,11 @@ loadConfig();
     if (M.recordingSlot) cancelRecord();  // only one at a time
     M.recordingSlot = slotId;
     btn.classList.add('recording');
-    btn.textContent = 'Press new combo…';
-    document.addEventListener('keydown', onCaptureKeydown, true);
+    btn.textContent = 'Press combo, side button, or scroll…';
+    document.addEventListener('keydown',   onCaptureKeydown,   true);
+    document.addEventListener('mousedown', onCaptureMousedown, true);  // Phase 9
+    document.addEventListener('wheel',     onCaptureWheel,     true);  // Phase 9
+    document.addEventListener('contextmenu', suppressContextMenu, true); // Phase 9: block right-click menu during capture
     emitCapturePause(true);
   }
 
@@ -1898,10 +2353,13 @@ loadConfig();
     const btn = document.querySelector(`.hotkey-capture[data-slot="${M.recordingSlot}"]`);
     if (btn) {
       btn.classList.remove('recording');
-      btn.textContent = M.currentHotkeys[M.recordingSlot] || '(none)';
+      btn.textContent = formatAccelForDisplay(M.currentHotkeys[M.recordingSlot]);
     }
     M.recordingSlot = null;
-    document.removeEventListener('keydown', onCaptureKeydown, true);
+    document.removeEventListener('keydown',     onCaptureKeydown,     true);
+    document.removeEventListener('mousedown',   onCaptureMousedown,   true);  // Phase 9
+    document.removeEventListener('wheel',       onCaptureWheel,       true);  // Phase 9
+    document.removeEventListener('contextmenu', suppressContextMenu,  true);  // Phase 9
     emitCapturePause(false);
   }
 
@@ -1922,7 +2380,7 @@ loadConfig();
     if (!accel) return;  // modifier-only keydown; wait for the non-modifier
     M.currentHotkeys[M.recordingSlot] = accel;
     const btn = document.querySelector(`.hotkey-capture[data-slot="${M.recordingSlot}"]`);
-    if (btn) btn.textContent = accel;
+    if (btn) btn.textContent = formatAccelForDisplay(accel);
     cancelRecord();
     revalidate();
   }
@@ -2050,7 +2508,13 @@ loadConfig();
     if (socket) {
       socket.on('hotkey_register_failed', (data) => {
         if (!data || !data.slot) return;
-        M.osRejections[data.slot] = { accel: data.accel, reason: data.reason };
+        // Phase 9 / HOTK-08: reason === null means "clear any prior rejection"
+        // (mouse-routed slots bypass globalShortcut so they cannot fail).
+        if (data.reason === null || data.reason === undefined) {
+          delete M.osRejections[data.slot];
+        } else {
+          M.osRejections[data.slot] = { accel: data.accel, reason: data.reason };
+        }
         revalidate();
       });
       socket.on('hotkeys_updated', (data) => {

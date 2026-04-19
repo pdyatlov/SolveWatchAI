@@ -218,6 +218,41 @@ function Wait-ForElectronReady {
     Ok "Electron HUD is ready."
 }
 
+# -- uiohook-napi ABI rebuild (Phase 9 / HOTK-08) ------------------------------
+# uiohook-napi is a native module. It MUST be rebuilt against Electron's
+# Node ABI after any npm install that touches it or Electron's minor version.
+# Currently: Electron 41.2.1 -> Node 24.14.1 -> ABI 145 (spike C1).
+# Missing rebuild surfaces as: require('uiohook-napi') threw NODE_MODULE_VERSION mismatch.
+#
+# `-f` forces rebuild, `-w uiohook-napi` limits scope (other deps already built).
+# Exit-code gated: MSVC Build Tools missing = hard fail with pointer (spike C4).
+function Invoke-UiohookRebuild {
+    Log "Rebuilding uiohook-napi for current Electron ABI..."
+    # Pre-clean: delete any build/Release/*.node file so node-gyp clean cannot
+    # hit EPERM from a lingering Windows file lock. Transient locks from dead
+    # electron processes, file indexer scans, or antivirus scanners manifest as
+    # "EPERM: operation not permitted, unlink ..." and DO NOT indicate missing
+    # MSVC tooling -- masking this behind the MSVC message is a known red herring.
+    $StaleBuildNode = Join-Path $ScriptDir 'node_modules\uiohook-napi\build\Release\uiohook_napi.node'
+    if (Test-Path $StaleBuildNode) {
+        try { Remove-Item -Force -ErrorAction Stop $StaleBuildNode }
+        catch { Warn "Could not delete stale $StaleBuildNode ($($_.Exception.Message)) -- rebuild may fail with EPERM; close any running electron.exe" }
+    }
+    & npx electron-rebuild -f -w uiohook-napi
+    if ($LASTEXITCODE -ne 0) {
+        Die "electron-rebuild failed for uiohook-napi.`n  If the error was 'EPERM: operation not permitted, unlink ...uiohook_napi.node': another process is holding the binary open (running electron.exe, file indexer, antivirus). Close electron, wait 5 seconds, retry.`n  If the error was a compiler/linker failure: install MSVC Build Tools 2022 with 'Desktop development with C++' workload: https://visualstudio.microsoft.com/visual-cpp-build-tools/"
+    }
+    # Stamp the rebuild with the current Electron version so the preflight guard
+    # can detect ABI staleness across npm-install/electron-upgrade cycles.
+    $ElectronPkg = Join-Path $ScriptDir 'node_modules\electron\package.json'
+    if (Test-Path $ElectronPkg) {
+        $ElectronVer = (Get-Content -Raw $ElectronPkg | ConvertFrom-Json).version
+        $StampPath   = Join-Path $ScriptDir 'node_modules\uiohook-napi\.electron-rebuild-stamp'
+        Set-Content -Path $StampPath -Value $ElectronVer -Encoding ASCII -NoNewline
+    }
+    Ok "uiohook-napi rebuilt."
+}
+
 # ── Pidfile atomic write (04-03, D-12) ────────────────────────────────────────
 # Writes logs/pids.json after all services are spawned. Electron reads it at
 # app.whenReady and uses managedPids to drive tray Stop all / Restart.
@@ -349,6 +384,7 @@ try {
         & npm install --silent
         if ($LASTEXITCODE -ne 0) { Die "npm install failed. Check output above." }
         Ok "Node.js packages installed."
+        Invoke-UiohookRebuild
 
         # ── 6/6  Python transcriber dependencies ─────────────────────────────────
         Section "6/6  Python transcriber dependencies"
@@ -438,6 +474,27 @@ try {
         Warn "node_modules missing or Electron shim absent. Running npm install..."
         & npm install --silent
         if (-not (Test-Path $ElectronBin)) { Die "Electron still not found after npm install. Re-run -Setup." }
+        Invoke-UiohookRebuild
+    }
+
+    # Guard against stale uiohook-napi .node binary from a prior Electron ABI.
+    # The prebuilds/ directory always exists after npm install (shipped with the
+    # package as Node-ABI binaries), so its existence is not a reliable staleness
+    # signal. Instead: compare the rebuild-stamp version against the currently
+    # installed Electron version. Mismatch OR missing stamp => rebuild.
+    $UiohookNativeDir = Join-Path $ScriptDir 'node_modules\uiohook-napi\prebuilds'
+    $RebuildStamp    = Join-Path $ScriptDir 'node_modules\uiohook-napi\.electron-rebuild-stamp'
+    $ElectronPkgPath = Join-Path $ScriptDir 'node_modules\electron\package.json'
+    if (-not (Test-Path $UiohookNativeDir)) {
+        Warn "uiohook-napi prebuilt binary missing -- rebuilding..."
+        Invoke-UiohookRebuild
+    } elseif (Test-Path $ElectronPkgPath) {
+        $CurrentElectronVer = (Get-Content -Raw $ElectronPkgPath | ConvertFrom-Json).version
+        $StampedVer = if (Test-Path $RebuildStamp) { (Get-Content -Raw $RebuildStamp).Trim() } else { '' }
+        if ($StampedVer -ne $CurrentElectronVer) {
+            Warn "uiohook-napi binary was built for Electron '$StampedVer', current is '$CurrentElectronVer' -- rebuilding..."
+            Invoke-UiohookRebuild
+        }
     }
 
     # ── Ollama background start ───────────────────────────────────────────────
@@ -506,7 +563,12 @@ try {
 
     # ── 3. Electron HUD ───────────────────────────────────────────────────────
     Log "Starting Electron HUD..."
-    $electronProc = Start-Process -FilePath $ElectronBin -ArgumentList 'electron\main.js' -PassThru -WindowStyle Hidden
+    # Redirect stdio so console.log() from electron main (e.g. [mouse-hook] init
+    # lines, [mouse-hook] FAIL load errors) is captured for post-mortem diagnosis.
+    # Without this, -WindowStyle Hidden drops all electron main stdio into the void.
+    $ElectronOutLog = Join-Path $LogsDir 'electron-stdout.log'
+    $ElectronErrLog = Join-Path $LogsDir 'electron-stderr.log'
+    $electronProc = Start-Process -FilePath $ElectronBin -ArgumentList 'electron\main.js' -PassThru -WindowStyle Hidden -RedirectStandardOutput $ElectronOutLog -RedirectStandardError $ElectronErrLog
     $Pids += $electronProc.Id
     Ok "Electron HUD started (PID $($electronProc.Id))."
 

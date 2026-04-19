@@ -746,8 +746,17 @@
 
     function renderMarkdown(text) {
       if (!text) return '';
+      // FIX-04: balance code fences before split. Mid-stream answers can end
+      // with an unclosed ``` block; split/(```[\s\S]*?```)/g only captures
+      // BALANCED pairs, so the tail would leak raw ``` into renderTextBlock.
+      // Count fence markers; if odd, append a closing fence on its own line.
+      // The closing fence is synthetic — it belongs to the current render pass
+      // only, not to the stored answer text. Subsequent token arrivals will
+      // re-enter renderMarkdown with a longer `text` and re-balance.
+      const fenceCount = (text.match(/```/g) || []).length;
+      const normalized = (fenceCount % 2 === 1) ? text + '\n```' : text;
       let html = '';
-      for (const part of text.split(/(```[\s\S]*?```)/g)) {
+      for (const part of normalized.split(/(```[\s\S]*?```)/g)) {
         const fenced = part.match(/^```(\w*)\n?([\s\S]*?)\n?```$/);
         if (fenced) {
           const lang = fenced[1] || '';

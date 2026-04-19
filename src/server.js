@@ -7,7 +7,7 @@ import app from './app.js';
 import screenshotMonitorService from './services/screenshot-monitor.service.js';
 import DataHandler from './sockets/dataHandler.js';
 import imageProcessingService from './services/image-processing.service.js';
-import { CONFIG, getLocalIP } from './config/constants.js';
+import { CONFIG } from './config/constants.js';
 import logger from './utils/logger.js';
 import sessionRecorder from './services/session-recorder.service.js';
 
@@ -51,15 +51,15 @@ const io = new Server(httpServer, {
 const dataHandler = new DataHandler(io);
 imageProcessingService.setDataHandlers([dataHandler]);
 
-httpServer.listen(CONFIG.PORT, '0.0.0.0', () => {
-  const localIP = getLocalIP();
+// Security: bind to loopback only. The backend exposes unauthenticated
+// endpoints (POST /api/shutdown drains the session recorder; GET
+// /api/sessions/screenshots/* serves user screenshots) that must not be
+// reachable from LAN/VPN peers. Electron HUD and Settings page both run
+// on the same host.
+httpServer.listen(CONFIG.PORT, '127.0.0.1', () => {
   log.info('Server started');
-  log.info(
-    `API: http://localhost:${CONFIG.PORT} | http://${localIP}:${CONFIG.PORT}`,
-  );
-  log.info(
-    `Data Updates: ws://localhost:${CONFIG.PORT}/data-updates | ws://${localIP}:${CONFIG.PORT}/data-updates`,
-  );
+  log.info(`API: http://localhost:${CONFIG.PORT}`);
+  log.info(`Data Updates: ws://localhost:${CONFIG.PORT}/data-updates`);
 });
 
 // Graceful shutdown handlers

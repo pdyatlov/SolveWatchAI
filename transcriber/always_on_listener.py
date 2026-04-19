@@ -348,9 +348,13 @@ class AlwaysOnListener:
             latency_ms=latency_ms,
         )
 
-        # Sampled logging (10% of chunks → ~1/s)
+        # Sampled logging (10% of chunks → ~1/s).
+        # FIX-05: inject source=self._source_label so diagnostic log readers can
+        # partition chunks by channel (me vs them) without ambiguity. VADMetrics
+        # itself stays source-agnostic — attribution is a log concern, not a metrics
+        # storage concern (each listener holds its own VADMetrics instance).
         if random.random() < _CHUNK_LOG_SAMPLE_RATE:
-            log_writer.log('vad_chunk', **record)
+            log_writer.log('vad_chunk', source=self._source_label, **record)
 
         if is_speech:
             if self._state == 'silence':
@@ -531,8 +535,9 @@ class AlwaysOnListener:
                 filter_reason=filter_reason,
             )
 
-            # Log every utterance (these are infrequent and high-value)
-            log_writer.log('vad_utterance', **utterance_record)
+            # Log every utterance (these are infrequent and high-value).
+            # FIX-05: inject source=self._source_label — same rationale as vad_chunk.
+            log_writer.log('vad_utterance', source=self._source_label, **utterance_record)
 
             if was_filtered:
                 return

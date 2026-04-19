@@ -21,7 +21,8 @@ const PROMPT_FILE_MAP = {
   debug: 'debug-prompt.txt',
   coding: 'coding-prompt.txt',
   theory: 'theory-prompt.txt',
-  'interview-answer': 'interview-answer-prompt.txt',
+  'interview-answer-bullets': 'interview-answer-bullets-prompt.txt',
+  'interview-answer-prose': 'interview-answer-prose-prompt.txt',
   retrospective: 'retrospective-prompt.txt',
 };
 
@@ -763,13 +764,21 @@ Question: ${question}`;
   }
 
   async *answerInterviewQuestion(questionText, transcriptContext = '', memoryContext = '') {
-    const template = this.readPromptFromFile('interview-answer');
+    const format = this.config?.answer_format === 'prose' ? 'prose' : 'bullets';
+    log.info('Interview answer format resolved', { format });
+    const template = this.readPromptFromFile(`interview-answer-${format}`);
     const rolePrefix = this._getRolePrefix();
     const profile = this._profileCache || '';
+    // Use function replacers: second-arg strings interpret $&, $', $`, $$, $n
+    // as special patterns. profile/transcript/memory are user-controlled and
+    // must pass through verbatim.
+    const profileBlock = profile ? `## Your Profile\n${profile}\n\n` : '';
+    const transcriptBlock = transcriptContext || '(no context yet)';
+    const memoryBlock = memoryContext ? `## Conversation History\n${memoryContext}` : '';
     const basePrompt = template
-      .replace('{PROFILE}', profile ? `## Your Profile\n${profile}\n\n` : '')
-      .replace('{TRANSCRIPT_CONTEXT}', transcriptContext || '(no context yet)')
-      .replace('{MEMORY_CONTEXT}', memoryContext ? `## Conversation History\n${memoryContext}` : '');
+      .replace('{PROFILE}', () => profileBlock)
+      .replace('{TRANSCRIPT_CONTEXT}', () => transcriptBlock)
+      .replace('{MEMORY_CONTEXT}', () => memoryBlock);
     const systemPrompt = rolePrefix + basePrompt;
 
     const messages = [

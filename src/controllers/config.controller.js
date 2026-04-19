@@ -95,7 +95,17 @@ const HOTKEY_MODIFIER_TOKENS = new Set([
 const HOTKEY_NAMED_KEYS = new Set([
   'Left','Right','Up','Down','Space','Tab','Backspace','Delete','Insert','Home','End','PageUp','PageDown','Escape','Enter','Return',
   'Plus','numadd','numsub','nummult','numdiv','numdec','Capslock','Numlock','Scrolllock','PrintScreen',
+  // Phase 9 / HOTK-08: mouse + wheel final-position tokens (CONTEXT D-04, D-12).
+  // Mouse1 (left) and Mouse2 (right) are intentionally excluded per D-08 — binding
+  // either would brick the UI. Validator rejects them via the existing unknown-key path.
+  'Mouse3','Mouse4','Mouse5','WheelUp','WheelDown',
 ]);
+
+// Phase 9 / HOTK-08: final tokens that don't hijack typing, so the
+// "must include non-Shift modifier" guard (in _validateAccelerator) does not apply.
+// Bare `Mouse4`, `WheelUp` etc. are valid prosumer bindings — they don't
+// intercept keystrokes, so the keyboard-hijack rationale doesn't extend.
+const MOUSE_FINAL_TOKENS = new Set(['Mouse3','Mouse4','Mouse5','WheelUp','WheelDown']);
 
 // Max payload size for POST body — well under express.json default (100kb) but explicit (security: DOS / oversized payload).
 const HOTKEYS_MAX_BYTES = 4096;
@@ -160,6 +170,16 @@ class ConfigController {
     // Final token must be a single printable char (A-Z, 0-9) or a named key.
     if (!(/^[A-Za-z0-9]$/.test(last) || /^F([1-9]|1[0-9]|2[0-4])$/.test(last) || HOTKEY_NAMED_KEYS.has(last))) {
       return `unknown key: ${last}`;
+    }
+    // Require at least one non-Shift modifier. Bare accelerators (e.g. "A", "F5")
+    // and Shift-only combos (e.g. "Shift+A") hijack normal typing globally via
+    // globalShortcut.register, bricking text input until the user rebinds.
+    // Phase 9 / HOTK-08: mouse/wheel final tokens do NOT hijack typing, so the
+    // guard is skipped when the final token is one of them (CONTEXT D-06).
+    if (!MOUSE_FINAL_TOKENS.has(last)) {
+      const SHIFT_ONLY = new Set(['Shift']);
+      const hasNonShift = modifiers.some((m) => !SHIFT_ONLY.has(m));
+      if (!hasNonShift) return 'must include Ctrl, Alt, or Cmd modifier';
     }
     return null;
   }
@@ -286,7 +306,7 @@ class ConfigController {
         success: true,
         providers,
         stt_model:       config.stt_model       || 'small',
-        answer_mode:     config.answer_mode      || 'auto',
+        answer_format:   config.answer_format   || 'bullets',
         hud_opacity:     config.hud_opacity      ?? 15,
         screenshots_path: config.screenshots_path || '',
         interview_role:  config.interview_role   || '',
@@ -301,7 +321,7 @@ class ConfigController {
 
   saveFullConfig(req, res) {
     try {
-      const { providers, stt_model, answer_mode, hud_opacity, screenshots_path, interview_role } = req.body;
+      const { providers, stt_model, answer_format, hud_opacity, screenshots_path, interview_role } = req.body;
 
       const configPath = this.getConfigFilePath();
       let existingConfig = { keys: {}, order: [], enabled: [] };
@@ -351,14 +371,15 @@ class ConfigController {
         order:            order.length ? order : existingConfig.order,
         enabled:          enabledProviders.length ? enabledProviders : existingConfig.enabled,
         stt_model:        stt_model        || existingConfig.stt_model       || 'small',
-        answer_mode:      answer_mode      || existingConfig.answer_mode      || 'auto',
+        answer_format:    answer_format    || existingConfig.answer_format    || 'bullets',
         hud_opacity:      hud_opacity      ?? existingConfig.hud_opacity      ?? 15,
         screenshots_path: screenshots_path !== undefined ? screenshots_path : (existingConfig.screenshots_path || ''),
         interview_role:   interview_role   !== undefined ? interview_role   : (existingConfig.interview_role   || ''),
       };
+      delete configToSave.answer_mode;
 
       fs.writeFileSync(configPath, JSON.stringify(configToSave, null, 2), 'utf8');
-      log.info('Full config saved', { providers: order, stt_model, answer_mode });
+      log.info('Full config saved', { providers: order, stt_model, answer_format });
 
       res.json({ success: true, message: 'Settings saved successfully' });
     } catch (err) {
